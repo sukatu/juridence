@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: case-search-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 30
+      - key: CORS_ORIGINS
+        value: https://case-search-frontend.onrender.com
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  - type: web
+    name: case-search-frontend
+    env: static
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://case-search-backend.onrender.com
+      - key: REACT_APP_GOOGLE_MAPS_API_KEY
+        sync: false
