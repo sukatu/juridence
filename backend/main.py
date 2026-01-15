@@ -50,6 +50,7 @@ from routes import correction_of_date_of_birth
 from routes import marriage_officers
 from routes import marriage_venues
 from routes import persons_unified_search
+from routes.persons_unified_search import unified_persons_search
 from routes import contact_requests
 from routes import ai_case_analysis
 from routes import analytics_generator
@@ -214,6 +215,16 @@ async def health_check():
         "service": "juridence-api",
         "version": "1.0.0"
     }
+
+# Fallback direct route for unified persons search (avoids 404 if router not loaded)
+@app.get("/api/persons-unified-search/")
+async def persons_unified_search_fallback(
+    query: str,
+    page: int = 1,
+    limit: int = 100,
+    db=Depends(get_db)
+):
+    return await unified_persons_search(query=query, page=page, limit=limit, db=db)
 
 # Global exception handler
 @app.exception_handler(Exception)
