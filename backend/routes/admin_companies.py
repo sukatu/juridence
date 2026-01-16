@@ -510,10 +510,36 @@ async def get_company(company_id: int, db: Session = Depends(get_db)):
         # Remove SQLAlchemy internal attributes
         company_dict.pop('_sa_instance_state', None)
         
+        analytics_dict = None
+        if analytics:
+            analytics_dict = analytics.__dict__.copy()
+            analytics_dict.pop("_sa_instance_state", None)
+            # Normalize decimals and datetimes for JSON serialization
+            for key in [
+                "total_monetary_amount",
+                "average_case_value",
+                "customer_dispute_rate",
+                "success_rate",
+            ]:
+                if analytics_dict.get(key) is not None:
+                    try:
+                        analytics_dict[key] = float(analytics_dict[key])
+                    except (TypeError, ValueError):
+                        analytics_dict[key] = 0.0
+            for key in ["last_updated", "created_at"]:
+                if analytics_dict.get(key) and hasattr(analytics_dict[key], "isoformat"):
+                    analytics_dict[key] = analytics_dict[key].isoformat()
+            # Enums to string
+            for key in ["risk_level", "financial_risk_level"]:
+                if analytics_dict.get(key) is not None:
+                    analytics_dict[key] = str(analytics_dict[key])
+
+        case_stats_dict = case_stats.to_dict() if case_stats else None
+
         return {
             "company": company_dict,
-            "analytics": analytics,
-            "case_statistics": case_stats
+            "analytics": analytics_dict,
+            "case_statistics": case_stats_dict
         }
     except HTTPException:
         raise

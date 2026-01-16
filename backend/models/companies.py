@@ -64,15 +64,15 @@ class Companies(Base):
     key_personnel = Column(JSON, nullable=True)  # Array of key personnel
     subsidiaries = Column(JSON, nullable=True)  # Array of subsidiary companies
     ceo = Column(String(255), nullable=True)  # CEO name
-    ceo_appointment_date = Column(Date, nullable=True)  # CEO appointment date
+    ceo_appointment_date = Column(String(50), nullable=True)  # CEO appointment date
     
     # Financial information
     annual_revenue = Column(Float, nullable=True)
-    annual_turnover = Column(Float, nullable=True)  # Alternative name for annual_revenue
+    annual_turnover = Column(String(50), nullable=True)  # Alternative name for annual_revenue
     net_worth = Column(Float, nullable=True)
-    total_assets = Column(Float, nullable=True)  # Total assets (different from net worth)
-    authorized_capital = Column(DECIMAL(15, 2), nullable=True)  # Authorized capital amount
-    financial_year_end = Column(Date, nullable=True)  # Financial year end date
+    total_assets = Column(String(50), nullable=True)  # Total assets (different from net worth)
+    authorized_capital = Column(String(50), nullable=True)  # Authorized capital amount
+    financial_year_end = Column(String(50), nullable=True)  # Financial year end date
     employee_count = Column(Integer, default=0)
     rating = Column(String(10), nullable=True)  # A+, A, B+, etc.
     

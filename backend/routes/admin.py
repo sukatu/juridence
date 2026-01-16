@@ -115,7 +115,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
 @router.get("/users", response_model=UserListResponse)
 async def get_users(
     page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=1000),
     search: Optional[str] = None,
     role: Optional[str] = None,
     status: Optional[str] = None,
@@ -134,9 +134,15 @@ async def get_users(
             )
         
         if role:
+            valid_roles = {r.value for r in UserRole}
+            if role not in valid_roles:
+                return UserListResponse(users=[], total=0, page=page, limit=limit, total_pages=0)
             query = query.filter(User.role == role)
         
         if status:
+            valid_statuses = {s.value for s in UserStatus}
+            if status not in valid_statuses:
+                return UserListResponse(users=[], total=0, page=page, limit=limit, total_pages=0)
             query = query.filter(User.status == status)
         
         # Get total count
@@ -159,7 +165,7 @@ async def get_users(
 @router.get("/users/clients-and-registrars", response_model=UserListResponse)
 async def get_clients_and_registrars(
     page: int = Query(1, ge=1),
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=1000),
     search: Optional[str] = None,
     user_type: Optional[str] = None,
     status: Optional[str] = None,
@@ -754,6 +760,18 @@ async def get_case(case_id: int, db: Session = Depends(get_db)):
         if case_dict.get('status') is not None:
             case_dict['status'] = status_mapping.get(case_dict['status'])
         
+        # Normalize fields that can violate response model typing
+        if case_dict.get("c_t") is not None:
+            case_dict["c_t"] = str(case_dict["c_t"])
+        academic_programme_id = case_dict.get("academic_programme_id")
+        if academic_programme_id in ("", None):
+            case_dict["academic_programme_id"] = None
+        else:
+            try:
+                case_dict["academic_programme_id"] = int(academic_programme_id)
+            except (TypeError, ValueError):
+                case_dict["academic_programme_id"] = None
+
         # Convert datetime fields to strings for JSON serialization
         for field in ['ai_summary_generated_at', 'created_at', 'updated_at', 'date']:
             if case_dict.get(field) and hasattr(case_dict[field], 'isoformat'):

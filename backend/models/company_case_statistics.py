@@ -15,8 +15,8 @@ class CompanyCaseStatistics(Base):
     unfavorable_cases = Column(Integer, default=0)
     mixed_cases = Column(Integer, default=0)
     case_outcome = Column(String(50), default="N/A", index=True)
-    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_updated = Column(String(50), nullable=True)
+    created_at = Column(String(50), nullable=True)
 
     # Relationship with Companies
     company = relationship("Companies", back_populates="case_statistics")
@@ -36,6 +36,6 @@ class CompanyCaseStatistics(Base):
             "unfavorable_cases": self.unfavorable_cases,
             "mixed_cases": self.mixed_cases,
             "case_outcome": self.case_outcome,
-            "last_updated": self.last_updated.isoformat() if self.last_updated else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None
+            "last_updated": self.last_updated.isoformat() if hasattr(self.last_updated, "isoformat") else self.last_updated,
+            "created_at": self.created_at.isoformat() if hasattr(self.created_at, "isoformat") else self.created_at
         }

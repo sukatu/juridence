@@ -136,7 +136,7 @@ async def unified_persons_search(
                 "old_name": entry.old_name,
                 "alias_names": [alias.strip() for alias in entry.alias_name.split(",") if alias.strip()] if entry.alias_name else [],  # Split comma-separated aliases
                 "profession": entry.profession,
-                "gazette_number": entry.gazette_number,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
                 "gazette_date": entry.gazette_date,
                 "page_number": entry.page_number,
                 "match_type": "current_name"
@@ -223,7 +223,7 @@ async def unified_persons_search(
                 "old_place_of_birth": entry.old_place_of_birth,
                 "new_place_of_birth": entry.new_place_of_birth,
                 "effective_date": entry.effective_date,
-                "gazette_number": entry.gazette_number,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
                 "gazette_date": entry.gazette_date,
                 "page_number": entry.page,  # CorrectionOfPlaceOfBirth uses 'page'
             })
@@ -250,7 +250,7 @@ async def unified_persons_search(
                 "old_date_of_birth": entry.old_date_of_birth,
                 "new_date_of_birth": entry.new_date_of_birth,
                 "effective_date": entry.effective_date,
-                "gazette_number": entry.gazette_number,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
                 "gazette_date": entry.gazette_date,
                 "page_number": entry.page,  # CorrectionOfDateOfBirth uses 'page'
             })
@@ -278,7 +278,7 @@ async def unified_persons_search(
                 "location": entry.location,
                 "region": entry.region,
                 "appointing_authority": entry.appointing_authority,
-                "gazette_number": entry.gazette_number,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
                 "gazette_date": entry.gazette_date,
             })
         
@@ -312,6 +312,10 @@ async def unified_persons_search(
         # Convert to response models (all results, no pagination)
         response_results = []
         for result in unique_results:
+            # Normalize empty date strings to None to satisfy Pydantic datetime parsing
+            for field in ("gazette_date", "effective_date", "old_date_of_birth", "new_date_of_birth"):
+                if result.get(field) == "":
+                    result[field] = None
             response_results.append(UnifiedSearchResult(**result))
         
         return UnifiedSearchResponse(
@@ -336,6 +340,8 @@ async def get_entry_details(
     """Get detailed information for a specific entry"""
     
     try:
+        def _safe_iso(value):
+            return value.isoformat() if hasattr(value, "isoformat") else value
         if source_type == "change_of_name":
             entry = db.query(ChangeOfName).filter(ChangeOfName.id == entry_id).first()
             if not entry:
@@ -354,12 +360,12 @@ async def get_entry_details(
                 "address": entry.address,
                 "town_city": entry.town_city,
                 "region": entry.region,
-                "gazette_number": entry.gazette_number,
-                "gazette_date": entry.gazette_date.isoformat() if entry.gazette_date else None,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
+                "gazette_date": _safe_iso(entry.gazette_date) if entry.gazette_date else None,
                 "page_number": entry.page_number,
                 "source_details": entry.source_details,
                 "source": entry.source,
-                "effective_date": entry.effective_date.isoformat() if entry.effective_date else None,
+                "effective_date": _safe_iso(entry.effective_date) if entry.effective_date else None,
                 "remarks": entry.remarks,
                 "item_number": entry.item_number,
                 "document_filename": entry.document_filename,
@@ -375,9 +381,9 @@ async def get_entry_details(
                 "person_name": entry.person_name,
                 "old_place_of_birth": entry.old_place_of_birth,
                 "new_place_of_birth": entry.new_place_of_birth,
-                "effective_date": entry.effective_date.isoformat() if entry.effective_date else None,
-                "gazette_number": entry.gazette_number,
-                "gazette_date": entry.gazette_date.isoformat() if entry.gazette_date else None,
+                "effective_date": _safe_iso(entry.effective_date) if entry.effective_date else None,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
+                "gazette_date": _safe_iso(entry.gazette_date) if entry.gazette_date else None,
                 "page_number": entry.page,  # CorrectionOfPlaceOfBirth uses 'page'
                 "source_details": entry.source_details,
                 "alias": entry.alias,
@@ -391,11 +397,11 @@ async def get_entry_details(
                 "source_type": "correction_of_date_of_birth",
                 "data_source": "Correction of Date of Birth",
                 "person_name": entry.person_name,
-                "old_date_of_birth": entry.old_date_of_birth.isoformat() if entry.old_date_of_birth else None,
-                "new_date_of_birth": entry.new_date_of_birth.isoformat() if entry.new_date_of_birth else None,
-                "effective_date": entry.effective_date.isoformat() if entry.effective_date else None,
-                "gazette_number": entry.gazette_number,
-                "gazette_date": entry.gazette_date.isoformat() if entry.gazette_date else None,
+                "old_date_of_birth": _safe_iso(entry.old_date_of_birth) if entry.old_date_of_birth else None,
+                "new_date_of_birth": _safe_iso(entry.new_date_of_birth) if entry.new_date_of_birth else None,
+                "effective_date": _safe_iso(entry.effective_date) if entry.effective_date else None,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
+                "gazette_date": _safe_iso(entry.gazette_date) if entry.gazette_date else None,
                 "page_number": entry.page,  # CorrectionOfDateOfBirth uses 'page'
                 "source_details": entry.source_details,
             }
@@ -413,9 +419,9 @@ async def get_entry_details(
                 "region": entry.region,
                 "appointing_authority": entry.appointing_authority,
                 "appointing_authority_title": entry.appointing_authority_title,
-                "appointment_date": entry.appointment_date.isoformat() if entry.appointment_date else None,
-                "gazette_number": entry.gazette_number,
-                "gazette_date": entry.gazette_date.isoformat() if entry.gazette_date else None,
+                "appointment_date": _safe_iso(entry.appointment_date) if entry.appointment_date else None,
+                "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
+                "gazette_date": _safe_iso(entry.gazette_date) if entry.gazette_date else None,
                 "page_number": entry.page_number,
                 "source_details": entry.source_details,
             }
