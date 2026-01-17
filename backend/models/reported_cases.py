@@ -61,4 +61,4 @@ class ReportedCases(Base):
     case_metadata = relationship("CaseMetadata", back_populates="case", uselist=False)
     case_search_index = relationship("CaseSearchIndex", back_populates="case", uselist=False)
     hearings = relationship("CaseHearing", back_populates="case", cascade="all, delete-orphan")
-    case_summary = relationship("CaseSummary", back_populates="case", uselist=False, cascade="all, delete-orphan")
+    case_summary_record = relationship("CaseSummary", back_populates="case", uselist=False, cascade="all, delete-orphan")

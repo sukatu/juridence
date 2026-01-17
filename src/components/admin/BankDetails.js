@@ -28,6 +28,13 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
   const [rulingsData, setRulingsData] = useState([]);
   const rulingsFilterRef = useRef(null);
 
+  // Pending cases state
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const [pendingTotalPages, setPendingTotalPages] = useState(0);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [pendingData, setPendingData] = useState([]);
+
   // Extract bank ID and name
   const bankId = typeof bank === 'object' && bank?.id ? bank.id : null;
   const bankName = typeof bank === 'string' 
@@ -257,6 +264,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
     { id: 'regulatory', label: 'Regulatory and Compliance' },
     { id: 'shareholders', label: 'Shareholder' },
     { id: 'judgements', label: 'Judgements and Rulings' },
+    { id: 'pending_cases', label: 'Pending Cases' },
     { id: 'beneficial', label: 'Beneficial Owners' }
   ];
 
@@ -265,6 +273,10 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
   // But if bankData is the bank object directly, use it
   const bankInfo = bankData?.bank || bankData;
   const directors = bankData?.directors || [];
+  const boardOfDirectors = bankInfo?.board_of_directors || [];
+  const keyPersonnel = bankInfo?.key_personnel || [];
+  const advisors = keyPersonnel.filter((person) => person?.category === 'advisor');
+  const headsOfDepartments = keyPersonnel.filter((person) => person?.category === 'head_of_department');
   const secretaries = bankData?.secretaries || [];
   const auditors = bankData?.auditors || [];
   const shareholders = bankData?.shareholders || [];
@@ -323,6 +335,38 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
     
     fetchRulings();
   }, [activeTab, bankIdForRulings, rulingsPage, rulingsSearchQuery, rulingsFilter, rulingsLimit]);
+
+  // Fetch pending cases when pending cases tab is active
+  useEffect(() => {
+    const fetchPendingCases = async () => {
+      if (activeTab !== 'pending_cases' || !bankIdForRulings) {
+        return;
+      }
+
+      try {
+        setPendingLoading(true);
+        const params = new URLSearchParams({
+          page: pendingPage.toString(),
+          limit: rulingsLimit.toString(),
+          status: 'pending'
+        });
+
+        const response = await apiGet(`/admin/banks/${bankIdForRulings}/rulings?${params}`);
+        setPendingData(response.rulings || []);
+        setPendingTotal(response.total || 0);
+        setPendingTotalPages(response.total_pages || 0);
+      } catch (err) {
+        console.error('Error fetching pending cases:', err);
+        setPendingData([]);
+        setPendingTotal(0);
+        setPendingTotalPages(0);
+      } finally {
+        setPendingLoading(false);
+      }
+    };
+
+    fetchPendingCases();
+  }, [activeTab, bankIdForRulings, pendingPage, rulingsLimit]);
   
   // Handle click outside to close filters
   useEffect(() => {
@@ -714,19 +758,107 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
             )}
 
             {activeTab === 'directors' && (
-              <div className="space-y-4">
-                <h3 className="text-lg font-bold text-[#040E1B]">Directors</h3>
-                {directors.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    {directors.map((director, idx) => (
-                      <div key={idx} className="border border-[#E4E7EB] rounded-lg p-4">
-                        <p className="text-[#040E1B] text-sm">{director.full_name || director.name || 'N/A'}</p>
+              <div className="space-y-6">
+                <div className="space-y-3">
+                  <h3 className="text-lg font-bold text-[#040E1B]">Board of Directors</h3>
+                  {boardOfDirectors.length > 0 ? (
+                    <div className="border border-[#E4E7EB] rounded-lg overflow-hidden">
+                      <div className="grid grid-cols-12 gap-4 bg-[#F4F6F9] px-4 py-3 border-b border-[#E5E8EC]">
+                        <div className="col-span-7">
+                          <span className="text-sm font-bold text-[#070810]">Name</span>
+                        </div>
+                        <div className="col-span-5">
+                          <span className="text-sm font-bold text-[#070810]">Designation</span>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[#525866] text-sm">No directors found</p>
-                )}
+                      <div className="divide-y divide-[#E5E8EC]">
+                        {boardOfDirectors.map((member, idx) => (
+                          <div key={idx} className="grid grid-cols-12 gap-4 px-4 py-3">
+                            <div className="col-span-7 text-sm text-[#040E1B]">
+                              {member.name || member.full_name || 'N/A'}
+                            </div>
+                            <div className="col-span-5 text-sm text-[#525866]">
+                              {member.designation || member.position || 'N/A'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : directors.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      {directors.map((director, idx) => (
+                        <div key={idx} className="border border-[#E4E7EB] rounded-lg p-4">
+                          <p className="text-[#040E1B] text-sm">{director.full_name || director.name || 'N/A'}</p>
+                          {director.position && (
+                            <p className="text-[#525866] text-xs mt-1">{director.position}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[#525866] text-sm">No board of directors found</p>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-lg font-bold text-[#040E1B]">Advisors</h3>
+                  {advisors.length > 0 ? (
+                    <div className="border border-[#E4E7EB] rounded-lg overflow-hidden">
+                      <div className="grid grid-cols-12 gap-4 bg-[#F4F6F9] px-4 py-3 border-b border-[#E5E8EC]">
+                        <div className="col-span-7">
+                          <span className="text-sm font-bold text-[#070810]">Name</span>
+                        </div>
+                        <div className="col-span-5">
+                          <span className="text-sm font-bold text-[#070810]">Designation</span>
+                        </div>
+                      </div>
+                      <div className="divide-y divide-[#E5E8EC]">
+                        {advisors.map((advisor, idx) => (
+                          <div key={idx} className="grid grid-cols-12 gap-4 px-4 py-3">
+                            <div className="col-span-7 text-sm text-[#040E1B]">
+                              {advisor.name || advisor.full_name || 'N/A'}
+                            </div>
+                            <div className="col-span-5 text-sm text-[#525866]">
+                              {advisor.designation || advisor.role || 'N/A'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[#525866] text-sm">No advisors found</p>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-lg font-bold text-[#040E1B]">Heads of Departments</h3>
+                  {headsOfDepartments.length > 0 ? (
+                    <div className="border border-[#E4E7EB] rounded-lg overflow-hidden">
+                      <div className="grid grid-cols-12 gap-4 bg-[#F4F6F9] px-4 py-3 border-b border-[#E5E8EC]">
+                        <div className="col-span-7">
+                          <span className="text-sm font-bold text-[#070810]">Department</span>
+                        </div>
+                        <div className="col-span-5">
+                          <span className="text-sm font-bold text-[#070810]">Head</span>
+                        </div>
+                      </div>
+                      <div className="divide-y divide-[#E5E8EC]">
+                        {headsOfDepartments.map((head, idx) => (
+                          <div key={idx} className="grid grid-cols-12 gap-4 px-4 py-3">
+                            <div className="col-span-7 text-sm text-[#040E1B]">
+                              {head.department || 'N/A'}
+                            </div>
+                            <div className="col-span-5 text-sm text-[#525866]">
+                              {head.head || head.name || 'N/A'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[#525866] text-sm">No department heads found</p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -800,7 +932,9 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
             {activeTab === 'judgements' && (
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-bold text-[#040E1B]">Judgements and Rulings</h3>
+                  <h3 className="text-lg font-bold text-[#040E1B]">
+                    {bank?.name ? `${bank.name} — ` : ''}Judgements and Rulings
+                  </h3>
                 </div>
                 
                 {/* Search and Filter Bar */}
@@ -946,17 +1080,26 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                       // Navigate to admin dashboard with case-profile tab and pass case data via sessionStorage
                                       if (onNavigate) {
                                         // Store case data in sessionStorage to pass to CaseProfilePage
-                                        sessionStorage.setItem('selectedCaseData', JSON.stringify(fullCaseData));
+                                        sessionStorage.setItem('selectedCaseData', JSON.stringify({
+                                          ...fullCaseData,
+                                          bank_name: bank?.name || fullCaseData?.bank_name
+                                        }));
                                         onNavigate('case-profile');
                                       } else {
                                         // Fallback: navigate to admin route
-                                        sessionStorage.setItem('selectedCaseData', JSON.stringify(fullCaseData));
+                                        sessionStorage.setItem('selectedCaseData', JSON.stringify({
+                                          ...fullCaseData,
+                                          bank_name: bank?.name || fullCaseData?.bank_name
+                                        }));
                                         navigate('/admin?tab=case-profile');
                                       }
                                     } catch (err) {
                                       console.error('Error fetching case details:', err);
                                       // Fallback: navigate with basic case data
-                                      sessionStorage.setItem('selectedCaseData', JSON.stringify(ruling.case));
+                                      sessionStorage.setItem('selectedCaseData', JSON.stringify({
+                                        ...ruling.case,
+                                        bank_name: bank?.name || ruling.case?.bank_name
+                                      }));
                                       if (onNavigate) {
                                         onNavigate('case-profile');
                                       } else {
@@ -1014,6 +1157,127 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                   </>
                 ) : (
                   <p className="text-[#525866] text-sm">No judgements and rulings found</p>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'pending_cases' && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-bold text-[#040E1B]">
+                    {bank?.name ? `${bank.name} — ` : ''}Pending Cases
+                  </h3>
+                </div>
+
+                {pendingLoading ? (
+                  <div className="flex justify-center items-center py-12">
+                    <span className="text-[#525866] text-sm">Loading pending cases...</span>
+                  </div>
+                ) : pendingData.length > 0 ? (
+                  <>
+                    <div className="space-y-4">
+                      {pendingData.map((ruling) => (
+                        <div key={ruling.id} className="border border-[#E4E7EB] rounded-lg p-4">
+                          {ruling.case && (
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <span className="text-[#868C98] text-xs">Case Title</span>
+                                  <p className="text-[#040E1B] text-sm">{ruling.case.title || 'N/A'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[#868C98] text-xs">Suit Reference Number</span>
+                                  <p className="text-[#040E1B] text-sm">{ruling.case.suit_reference_number || 'N/A'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[#868C98] text-xs">Court Name</span>
+                                  <p className="text-[#040E1B] text-sm">{getCourtTypeName(ruling.case.court_type) || 'N/A'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[#868C98] text-xs">Date</span>
+                                  <p className="text-[#040E1B] text-sm">{formatDate(ruling.case.date) || 'N/A'}</p>
+                                </div>
+                              </div>
+                              <div className="flex justify-end pt-2 border-t border-[#E4E7EB]">
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const fullCaseData = await apiGet(`/cases/${ruling.case.id}`);
+                                      if (onNavigate) {
+                                        sessionStorage.setItem('selectedCaseData', JSON.stringify({
+                                          ...fullCaseData,
+                                          bank_name: bank?.name || fullCaseData?.bank_name
+                                        }));
+                                        onNavigate('case-profile');
+                                      } else {
+                                        sessionStorage.setItem('selectedCaseData', JSON.stringify({
+                                          ...fullCaseData,
+                                          bank_name: bank?.name || fullCaseData?.bank_name
+                                        }));
+                                        navigate('/admin?tab=case-profile');
+                                      }
+                                    } catch (err) {
+                                      console.error('Error fetching case details:', err);
+                                      sessionStorage.setItem('selectedCaseData', JSON.stringify({
+                                        ...ruling.case,
+                                        bank_name: bank?.name || ruling.case?.bank_name
+                                      }));
+                                      if (onNavigate) {
+                                        onNavigate('case-profile');
+                                      } else {
+                                        navigate('/admin?tab=case-profile');
+                                      }
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#1A4983] transition-colors text-sm font-medium"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                  View Case Details
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {pendingTotalPages > 1 && (
+                      <div className="flex items-center justify-between pt-4 border-t border-[#E4E7EB]">
+                        <div className="text-[#525866] text-sm">
+                          Showing {(pendingPage - 1) * rulingsLimit + 1} to {Math.min(pendingPage * rulingsLimit, pendingTotal)} of {pendingTotal} results
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setPendingPage(prev => Math.max(1, prev - 1))}
+                            disabled={pendingPage === 1}
+                            className={`px-3 py-1 rounded border ${
+                              pendingPage === 1
+                                ? 'text-[#9AA1AB] border-[#E4E7EB] cursor-not-allowed'
+                                : 'text-[#022658] border-[#022658] hover:bg-[#F7F8FA]'
+                            }`}
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <span className="text-[#525866] text-sm">
+                            Page {pendingPage} of {pendingTotalPages}
+                          </span>
+                          <button
+                            onClick={() => setPendingPage(prev => Math.min(pendingTotalPages, prev + 1))}
+                            disabled={pendingPage === pendingTotalPages}
+                            className={`px-3 py-1 rounded border ${
+                              pendingPage === pendingTotalPages
+                                ? 'text-[#9AA1AB] border-[#E4E7EB] cursor-not-allowed'
+                                : 'text-[#022658] border-[#022658] hover:bg-[#F7F8FA]'
+                            }`}
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-[#525866] text-sm">No pending cases found</p>
                 )}
               </div>
             )}

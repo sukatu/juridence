@@ -130,6 +130,7 @@ def search_correction_of_place_of_birth(
         for entry in entries:
             results.append({
                 "id": entry.id,
+                "item_number": entry.item_number,
                 "person_name": entry.person_name,
                 "alias": entry.alias,
                 "profession": entry.profession,

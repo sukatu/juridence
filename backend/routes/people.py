@@ -156,15 +156,21 @@ async def search_people(
             # Cap risk score at 200 to prevent validation errors
             if person.risk_score and person.risk_score > 200:
                 person.risk_score = 200.0
-            # Normalize empty strings to avoid response validation errors
-            if isinstance(person.first_name, str) and not person.first_name.strip():
-                person.first_name = None
-            if isinstance(person.last_name, str) and not person.last_name.strip():
-                person.last_name = None
-            if isinstance(person.full_name, str) and not person.full_name.strip():
-                first = person.first_name or ""
-                last = person.last_name or ""
-                person.full_name = f"{first} {last}".strip() or "Unknown"
+            # Normalize empty/invalid names and ensure non-null before commit
+            if not person.first_name or (isinstance(person.first_name, str) and not person.first_name.strip()):
+                if person.full_name:
+                    parts = person.full_name.split()
+                    person.first_name = parts[0] if parts else "Unknown"
+                else:
+                    person.first_name = "Unknown"
+            if not person.last_name or (isinstance(person.last_name, str) and not person.last_name.strip()):
+                if person.full_name:
+                    parts = person.full_name.split()
+                    person.last_name = parts[-1] if parts else person.first_name
+                else:
+                    person.last_name = person.first_name
+            if not person.full_name or (isinstance(person.full_name, str) and not person.full_name.strip()):
+                person.full_name = f"{person.first_name} {person.last_name}".strip() or "Unknown"
             
             if limit <= 20:
                 # Case statistics already joined for small queries

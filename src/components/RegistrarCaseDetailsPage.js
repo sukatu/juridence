@@ -800,13 +800,15 @@ const RegistrarCaseDetailsPage = ({ caseData, onBack, userInfo, onNavigate, onLo
   // Use userInfo from props or localStorage
   const displayUserInfo = userInfo || JSON.parse(localStorage.getItem('userData') || '{}');
 
+  const bankName = fullCaseData?.bank_name || caseData?.bank_name || fullCaseData?.bankName || caseData?.bankName;
+
   return (
     <div className="bg-[#F7F8FA] min-h-screen">
       {/* Full Width Header */}
       {isRegistrar ? (
-        <RegistrarHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} />
+        <RegistrarHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel={bankName} />
       ) : (
-        <AdminHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} />
+        <AdminHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel={bankName} />
       )}
 
       {/* Main Content */}
@@ -835,7 +837,7 @@ const RegistrarCaseDetailsPage = ({ caseData, onBack, userInfo, onNavigate, onLo
                 <ChevronRight className="w-6 h-6 text-[#050F1C] rotate-180" />
               </button>
               <span className="text-[#050F1C] text-2xl font-medium flex-1">
-                {data.fullTitle}
+                {bankName ? `${bankName} — ` : ''}{data.fullTitle}
               </span>
             </div>
 

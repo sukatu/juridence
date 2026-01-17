@@ -28,7 +28,7 @@ class CaseSummary(Base):
     is_active = Column(Boolean, default=True, comment="Whether this summary is currently active")
     
     # Relationships
-    case = relationship("ReportedCases", back_populates="case_summary")
+    case = relationship("ReportedCases", back_populates="case_summary_record")
     
     def __repr__(self):
         return f"<CaseSummary(case_id={self.case_id}, has_monetary_value={self.has_monetary_value})>"

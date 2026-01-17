@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Circle } from 'lucide-react';
 
-const AdminHeader = ({ userInfo, onNavigate, onLogout }) => {
+const AdminHeader = ({ userInfo, onNavigate, onLogout, contextLabel }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
 
@@ -69,7 +69,12 @@ const AdminHeader = ({ userInfo, onNavigate, onLogout }) => {
 
   return (
     <div className="w-full bg-white py-3.5 px-6 mb-4">
-      <div className="flex justify-end items-center w-full">
+      <div className="relative flex justify-end items-center w-full">
+        {contextLabel && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-[#050F1C] text-2xl font-bold">{contextLabel}</span>
+          </div>
+        )}
         {/* Right Side - Notification and User Icon */}
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="relative flex-shrink-0" ref={userMenuRef}>

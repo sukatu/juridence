@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Circle } from 'lucide-react';
 
-const RegistrarHeader = ({ userInfo, onNavigate, onLogout }) => {
+const RegistrarHeader = ({ userInfo, onNavigate, onLogout, contextLabel }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -72,7 +72,12 @@ const RegistrarHeader = ({ userInfo, onNavigate, onLogout }) => {
 
   return (
     <div className="w-full bg-white py-3.5 px-6 mb-4">
-      <div className="flex justify-between items-center w-full">
+      <div className="relative flex justify-between items-center w-full">
+        {contextLabel && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-[#050F1C] text-2xl font-bold">{contextLabel}</span>
+          </div>
+        )}
         {/* Search Input */}
         <div className="flex justify-between items-center flex-1 max-w-[700px] pr-2 rounded-lg border border-solid border-[#D4E1EA]">
           <input

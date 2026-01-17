@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 
-from database import create_tables
+from database import create_tables, get_db
 from routes import auth
 from auth import get_current_user
 from models.user import User
@@ -48,6 +48,7 @@ from routes import gazette_ai_chat
 from routes import correction_of_place_of_birth
 from routes import correction_of_date_of_birth
 from routes import marriage_officers
+from routes import change_of_name
 from routes import marriage_venues
 from routes import persons_unified_search
 from routes.persons_unified_search import unified_persons_search
@@ -182,6 +183,7 @@ app.include_router(gazette_ai_chat.router, prefix="/api", tags=["gazette-ai-chat
 app.include_router(correction_of_place_of_birth.router, prefix="/api", tags=["correction-of-place-of-birth"])
 app.include_router(correction_of_date_of_birth.router, prefix="/api", tags=["correction-of-date-of-birth"])
 app.include_router(marriage_officers.router, prefix="/api", tags=["marriage-officers"])
+app.include_router(change_of_name.router, prefix="/api", tags=["change-of-name"])
 app.include_router(marriage_venues.router, prefix="/api", tags=["marriage-venues"])
 app.include_router(persons_unified_search.router, prefix="/api", tags=["persons-unified-search"])
 app.include_router(contact_requests.router, prefix="/api/subscription", tags=["contact-requests"])
