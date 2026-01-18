@@ -34,6 +34,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
   const [pendingTotalPages, setPendingTotalPages] = useState(0);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [pendingData, setPendingData] = useState([]);
+  const [pendingSearchQuery, setPendingSearchQuery] = useState('');
 
   // Extract bank ID and name
   const bankId = typeof bank === 'object' && bank?.id ? bank.id : null;
@@ -98,6 +99,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
   const getCourtTypeName = (courtType) => {
     if (!courtType) return 'N/A';
     const courtTypeMap = {
+      'H': 'High Court',
       'SC': 'Supreme Court',
       'CA': 'Court of Appeal',
       'HC': 'High Court',
@@ -116,6 +118,31 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
       'land_court': 'Land Court',
     };
     return courtTypeMap[courtType] || courtType;
+  };
+
+  const getCourtLocationName = (location) => {
+    if (!location) return 'N/A';
+    const locationMap = {
+      'LC': 'Law Court Complex, Accra'
+    };
+    return locationMap[location] || location;
+  };
+
+  const getCaseProgressBadge = (value) => {
+    if (!value) {
+      return { text: 'N/A', className: 'bg-[#F4F6F9] text-[#525866]' };
+    }
+    const normalized = value.toLowerCase();
+    if (['closed', 'judgment', 'judgement', 'motion - completed', 'pre-trial - completed', 'ruling'].includes(normalized)) {
+      return { text: value, className: 'bg-green-100 text-green-700' };
+    }
+    if (['process service', 'case filed', 'ongoing', 'hearing', 'in progress', 'new', 'pending'].includes(normalized)) {
+      return { text: value, className: 'bg-yellow-100 text-yellow-700' };
+    }
+    if (['motion - struck out'].includes(normalized)) {
+      return { text: value, className: 'bg-red-100 text-red-700' };
+    }
+    return { text: value, className: 'bg-[#E6ECF3] text-[#022658]' };
   };
 
   // Bank logo mapping (same as CompaniesListView)
@@ -350,6 +377,9 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
           limit: rulingsLimit.toString(),
           status: 'pending'
         });
+        if (pendingSearchQuery) {
+          params.append('search', pendingSearchQuery);
+        }
 
         const response = await apiGet(`/admin/banks/${bankIdForRulings}/rulings?${params}`);
         setPendingData(response.rulings || []);
@@ -366,7 +396,11 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
     };
 
     fetchPendingCases();
-  }, [activeTab, bankIdForRulings, pendingPage, rulingsLimit]);
+  }, [activeTab, bankIdForRulings, pendingPage, pendingSearchQuery, rulingsLimit]);
+
+  useEffect(() => {
+    setPendingPage(1);
+  }, [pendingSearchQuery]);
   
   // Handle click outside to close filters
   useEffect(() => {
@@ -1080,6 +1114,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                       // Navigate to admin dashboard with case-profile tab and pass case data via sessionStorage
                                       if (onNavigate) {
                                         // Store case data in sessionStorage to pass to CaseProfilePage
+                                        sessionStorage.setItem('caseBackTarget', JSON.stringify({ type: 'bank', bankId, bankName }));
                                         sessionStorage.setItem('selectedCaseData', JSON.stringify({
                                           ...fullCaseData,
                                           bank_name: bank?.name || fullCaseData?.bank_name
@@ -1087,6 +1122,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                         onNavigate('case-profile');
                                       } else {
                                         // Fallback: navigate to admin route
+                                        sessionStorage.setItem('caseBackTarget', JSON.stringify({ type: 'bank', bankId, bankName }));
                                         sessionStorage.setItem('selectedCaseData', JSON.stringify({
                                           ...fullCaseData,
                                           bank_name: bank?.name || fullCaseData?.bank_name
@@ -1096,6 +1132,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                     } catch (err) {
                                       console.error('Error fetching case details:', err);
                                       // Fallback: navigate with basic case data
+                                      sessionStorage.setItem('caseBackTarget', JSON.stringify({ type: 'bank', bankId, bankName }));
                                       sessionStorage.setItem('selectedCaseData', JSON.stringify({
                                         ...ruling.case,
                                         bank_name: bank?.name || ruling.case?.bank_name
@@ -1169,6 +1206,28 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                   </h3>
                 </div>
 
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1 relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#868C98] w-5 h-5" />
+                    <input
+                      type="text"
+                      value={pendingSearchQuery}
+                      onChange={(e) => setPendingSearchQuery(e.target.value)}
+                      placeholder="Search pending cases..."
+                      className="w-full pl-10 pr-4 py-2.5 border border-[#D4E1EA] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#022658] focus:border-transparent"
+                    />
+                  </div>
+                  {pendingSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPendingSearchQuery('')}
+                      className="px-4 py-2.5 border border-[#D4E1EA] rounded-lg text-[#525866] hover:bg-[#F7F8FA]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
                 {pendingLoading ? (
                   <div className="flex justify-center items-center py-12">
                     <span className="text-[#525866] text-sm">Loading pending cases...</span>
@@ -1194,8 +1253,34 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                   <p className="text-[#040E1B] text-sm">{getCourtTypeName(ruling.case.court_type) || 'N/A'}</p>
                                 </div>
                                 <div>
+                                  <span className="text-[#868C98] text-xs">Location</span>
+                                  <p className="text-[#040E1B] text-sm">
+                                    {getCourtLocationName(
+                                      ruling.case.town ||
+                                      ruling.case.location ||
+                                      ruling.case.court_division ||
+                                      ruling.case.region
+                                    ) || 'N/A'}
+                                  </p>
+                                </div>
+                                <div>
+                                  <span className="text-[#868C98] text-xs">Edited by</span>
+                                  <p className="text-[#040E1B] text-sm">{ruling.case.presiding_judge || 'N/A'}</p>
+                                </div>
+                                <div>
                                   <span className="text-[#868C98] text-xs">Date</span>
                                   <p className="text-[#040E1B] text-sm">{formatDate(ruling.case.date) || 'N/A'}</p>
+                                </div>
+                                <div>
+                                  <span className="text-[#868C98] text-xs">Case Progress</span>
+                                  {(() => {
+                                    const badge = getCaseProgressBadge(ruling.case.case_progress);
+                                    return (
+                                      <span className={`inline-flex px-2 py-1 rounded-lg text-xs font-medium ${badge.className}`}>
+                                        {badge.text}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                               <div className="flex justify-end pt-2 border-t border-[#E4E7EB]">
@@ -1204,12 +1289,14 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                     try {
                                       const fullCaseData = await apiGet(`/cases/${ruling.case.id}`);
                                       if (onNavigate) {
+                                        sessionStorage.setItem('caseBackTarget', JSON.stringify({ type: 'bank', bankId, bankName }));
                                         sessionStorage.setItem('selectedCaseData', JSON.stringify({
                                           ...fullCaseData,
                                           bank_name: bank?.name || fullCaseData?.bank_name
                                         }));
                                         onNavigate('case-profile');
                                       } else {
+                                        sessionStorage.setItem('caseBackTarget', JSON.stringify({ type: 'bank', bankId, bankName }));
                                         sessionStorage.setItem('selectedCaseData', JSON.stringify({
                                           ...fullCaseData,
                                           bank_name: bank?.name || fullCaseData?.bank_name
@@ -1218,6 +1305,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                       }
                                     } catch (err) {
                                       console.error('Error fetching case details:', err);
+                                      sessionStorage.setItem('caseBackTarget', JSON.stringify({ type: 'bank', bankId, bankName }));
                                       sessionStorage.setItem('selectedCaseData', JSON.stringify({
                                         ...ruling.case,
                                         bank_name: bank?.name || ruling.case?.bank_name

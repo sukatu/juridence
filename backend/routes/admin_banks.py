@@ -660,10 +660,13 @@ async def get_bank_rulings(
                     'suit_reference_number': case.suit_reference_number,
                     'date': case.date.isoformat() if case.date else None,
                     'court_type': case.court_type,
+                    'town': case.town,
+                    'region': case.region,
                     'area_of_law': case.area_of_law,
                     'protagonist': case.protagonist,
                     'antagonist': case.antagonist,
                     'presiding_judge': case.presiding_judge,
+                    'case_progress': case.case_progress,
                     'status': case.status
                 }
             })

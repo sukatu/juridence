@@ -6,7 +6,7 @@ import BankDetails from './BankDetails';
 import AddCompanyForm from './AddCompanyForm';
 import AdminHeader from './AdminHeader';
 
-const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout }) => {
+const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, initialSelectedCompany = null }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCompanyQuery, setSearchCompanyQuery] = useState('');
   const [companies, setCompanies] = useState([]); // Array of company name strings only
@@ -112,6 +112,12 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout })
     'BANK OF GHANA': '/banks/Bank of ghana.jpeg',
     'BOG': '/banks/Bank of ghana.jpeg',
   };
+
+  useEffect(() => {
+    if (initialSelectedCompany && !selectedCompany) {
+      setSelectedCompany(initialSelectedCompany);
+    }
+  }, [initialSelectedCompany, selectedCompany]);
 
   const getBankLogo = (bankName, logoUrl) => {
     // First, use logo_url from database if available

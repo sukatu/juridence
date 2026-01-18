@@ -278,6 +278,24 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
       <RegistrarCaseDetailsPage
         caseData={selectedCase}
         onBack={() => {
+          const backTargetRaw = sessionStorage.getItem('caseBackTarget');
+          if (backTargetRaw) {
+            try {
+              const backTarget = JSON.parse(backTargetRaw);
+              if (backTarget?.type === 'bank' && backTarget?.bankId) {
+                sessionStorage.setItem('selectedBankData', JSON.stringify({
+                  id: backTarget.bankId,
+                  name: backTarget.bankName || 'Bank'
+                }));
+                sessionStorage.removeItem('caseBackTarget');
+                onNavigate('companies');
+                return;
+              }
+            } catch (err) {
+              console.error('Failed to parse caseBackTarget:', err);
+            }
+            sessionStorage.removeItem('caseBackTarget');
+          }
           setShowCaseDetails(false);
           setSelectedCase(null);
         }}

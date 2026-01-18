@@ -8,7 +8,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
     name: '',
     location: '',
     profession: '',
-    databaseType: 'all' // 'all', 'change_of_name', 'change_of_pob', 'change_of_dob', 'marriage_officers'
+    databaseType: 'all' // 'all', 'change_of_name', 'change_of_pob', 'change_of_dob', 'marriage_officers', 'judgements_rulings'
   });
   const [isDatabaseSectionOpen, setIsDatabaseSectionOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -58,6 +58,11 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
       id: 'marriage_officers',
       label: 'Marriage officers',
       description: 'Search for registered marriage officers and officiants'
+    },
+    {
+      id: 'judgements_rulings',
+      label: 'Judgements & Rulings',
+      description: 'Search court judgements and rulings by case title'
     }
   ];
 
@@ -128,9 +133,13 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
         });
       }, 100);
 
-      // Call the unified search API - fetch all results (no limit)
-      // The backend will return all results from all categories
-      const response = await apiGet(`/persons-unified-search/?query=${encodeURIComponent(searchData.name)}&page=1&limit=10000`);
+      let response = null;
+      const shouldSearchPersons = searchData.databaseType !== 'judgements_rulings';
+      if (shouldSearchPersons) {
+        // Call the unified search API - fetch all results (no limit)
+        // The backend will return all results from all categories
+        response = await apiGet(`/persons-unified-search/?query=${encodeURIComponent(searchData.name)}&page=1&limit=10000`);
+      }
       
       if (progressInterval) {
         clearInterval(progressInterval);
@@ -138,18 +147,13 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
       }
       setSearchProgress(100);
 
-      // Update pagination info
-      if (response) {
-        setTotalResults(response.total || 0);
-        setTotalPages(response.total_pages || 1);
-      }
-
       // Group results by source type
       const groupedResults = {
         change_of_name: [],
         correction_of_date_of_birth: [],
         correction_of_place_of_birth: [],
-        marriage_officer: []
+        marriage_officer: [],
+        judgements_rulings: []
       };
 
       if (response && response.results) {
@@ -165,6 +169,33 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
           }
         });
       }
+
+      if (searchData.databaseType === 'all' || searchData.databaseType === 'judgements_rulings') {
+        const caseResponse = await apiGet(`/case-search/search?query=${encodeURIComponent(searchData.name)}&page=1&limit=100`);
+        groupedResults.judgements_rulings = caseResponse?.results || [];
+      }
+
+      const databaseTypeToTab = {
+        all: null,
+        change_of_name: 'change_of_name',
+        change_of_pob: 'correction_of_place_of_birth',
+        change_of_dob: 'correction_of_date_of_birth',
+        marriage_officers: 'marriage_officer',
+        judgements_rulings: 'judgements_rulings'
+      };
+      const selectedTab = databaseTypeToTab[searchData.databaseType] || null;
+      if (selectedTab) {
+        Object.keys(groupedResults).forEach((key) => {
+          if (key !== selectedTab) {
+            groupedResults[key] = [];
+          }
+        });
+        setActiveTab(selectedTab);
+      }
+
+      const totalCount = Object.values(groupedResults).reduce((sum, arr) => sum + (arr?.length || 0), 0);
+      setTotalResults(totalCount);
+      setTotalPages(1);
 
       setSearchResults(groupedResults);
       
@@ -263,6 +294,9 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
       case 'marriage_officer':
         results = searchResults.marriage_officer || [];
         break;
+      case 'judgements_rulings':
+        results = searchResults.judgements_rulings || [];
+        break;
       default:
         results = [];
     }
@@ -283,6 +317,12 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
           const location = (result.location || '').toLowerCase();
           const region = (result.region || '').toLowerCase();
           return officerName.includes(filterLower) || church.includes(filterLower) || location.includes(filterLower) || region.includes(filterLower);
+        } else if (activeTab === 'judgements_rulings') {
+          const title = (result.title || '').toLowerCase();
+          const suit = (result.suit_reference_number || '').toLowerCase();
+          const protagonist = (result.protagonist || '').toLowerCase();
+          const antagonist = (result.antagonist || '').toLowerCase();
+          return title.includes(filterLower) || suit.includes(filterLower) || protagonist.includes(filterLower) || antagonist.includes(filterLower);
         } else {
           const personName = (result.person_name || result.name || '').toLowerCase();
           return personName.includes(filterLower);
@@ -335,6 +375,8 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
         return (searchResults.correction_of_date_of_birth || []).length;
       case 'marriage_officer':
         return (searchResults.marriage_officer || []).length;
+      case 'judgements_rulings':
+        return (searchResults.judgements_rulings || []).length;
       default:
         return 0;
     }
@@ -354,6 +396,22 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
       setSearchError('Failed to load record details');
     } finally {
       setLoadingDetails(false);
+    }
+  };
+
+  const handleViewCase = async (caseItem) => {
+    try {
+      const fullCaseData = await apiGet(`/cases/${caseItem.id}`);
+      sessionStorage.setItem('selectedCaseData', JSON.stringify(fullCaseData));
+      if (onNavigate) {
+        onNavigate('case-profile');
+      }
+    } catch (error) {
+      console.error('Error fetching case details:', error);
+      sessionStorage.setItem('selectedCaseData', JSON.stringify(caseItem));
+      if (onNavigate) {
+        onNavigate('case-profile');
+      }
     }
   };
 
@@ -470,44 +528,11 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                 value={searchData.name}
                 onChange={handleInputChange}
                 placeholder="Enter name"
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] outline-none"
               />
             </div>
 
-            {/* Location and Profession Fields - Two Columns */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Location Field */}
-              <div>
-                <label htmlFor="location" className="block text-sm font-medium text-slate-700 mb-2">
-                  Location
-                </label>
-                <input
-                  type="text"
-                  id="location"
-                  name="location"
-                  value={searchData.location}
-                  onChange={handleInputChange}
-                  placeholder="Enter location"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-              </div>
-
-              {/* Profession Field */}
-              <div>
-                <label htmlFor="profession" className="block text-sm font-medium text-slate-700 mb-2">
-                  Profession
-                </label>
-                <input
-                  type="text"
-                  id="profession"
-                  name="profession"
-                  value={searchData.profession}
-                  onChange={handleInputChange}
-                  placeholder="Enter profession"
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-              </div>
-            </div>
+            {/* Location and Profession Fields hidden */}
 
             {/* Database Type Selection - Collapsible Radio Buttons */}
             <div>
@@ -536,7 +561,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                         value={option.id}
                         checked={searchData.databaseType === option.id}
                         onChange={() => handleDatabaseTypeChange(option.id)}
-                        className="mt-1 mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 focus:ring-2 border-slate-300"
+                        className="mt-1 mr-3 h-4 w-4 text-[#022658] focus:ring-[#022658] focus:ring-2 border-slate-300"
                       />
                       <div className="flex-1">
                         <div className="text-sm font-medium text-slate-900">
@@ -559,7 +584,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
               <button
                 type="button"
                 onClick={handleClear}
-                className="flex items-center gap-2 px-6 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                className="flex items-center gap-2 px-6 py-2.5 border border-[#D4E1EA] text-[#525866] rounded-lg hover:bg-[#F7F8FA] transition-colors font-medium"
               >
                 <X className="w-4 h-4" />
                 Clear
@@ -568,7 +593,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                 type="button"
                 onClick={() => handleSearch()}
                 disabled={!searchData.name.trim()}
-                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-6 py-2.5 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors font-medium flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Search className="w-4 h-4" />
                 Search
@@ -614,11 +639,11 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-slate-700">Searching databases...</span>
-                <span className="text-sm font-medium text-blue-600">{searchProgress}%</span>
+                <span className="text-sm font-medium text-[#022658]">{searchProgress}%</span>
               </div>
               <div className="w-full bg-slate-200 rounded-full h-2.5">
                 <div 
-                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                  className="bg-[#022658] h-2.5 rounded-full transition-all duration-300"
                   style={{ width: `${searchProgress}%` }}
                 />
               </div>
@@ -626,29 +651,29 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
 
             {/* Database Search Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <User className="w-5 h-5 text-blue-600" />
+              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
+                <User className="w-5 h-5 text-[#022658]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Change of Name</div>
                   <div className="text-xs text-slate-600">Searching...</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <Calendar className="w-5 h-5 text-blue-600" />
+              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
+                <Calendar className="w-5 h-5 text-[#022658]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Correction of Date of Birth</div>
                   <div className="text-xs text-slate-600">Searching...</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <MapPin className="w-5 h-5 text-blue-600" />
+              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
+                <MapPin className="w-5 h-5 text-[#022658]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Correction of Place of Birth</div>
                   <div className="text-xs text-slate-600">Searching...</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <Database className="w-5 h-5 text-blue-600" />
+              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
+                <Database className="w-5 h-5 text-[#022658]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Marriage Officers</div>
                   <div className="text-xs text-slate-600">Searching...</div>
@@ -675,7 +700,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   onClick={() => handleTabChange('change_of_name')}
                   className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
                     activeTab === 'change_of_name'
-                      ? 'border-blue-600 text-blue-600'
+                      ? 'border-[#022658] text-[#022658]'
                       : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
                   }`}
                 >
@@ -685,7 +710,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                     {getTabCount('change_of_name') > 0 && (
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                         activeTab === 'change_of_name'
-                          ? 'bg-blue-100 text-blue-700'
+                          ? 'bg-[#E6ECF3] text-[#022658]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {getTabCount('change_of_name')}
@@ -697,7 +722,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   onClick={() => handleTabChange('correction_of_place_of_birth')}
                   className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
                     activeTab === 'correction_of_place_of_birth'
-                      ? 'border-blue-600 text-blue-600'
+                      ? 'border-[#022658] text-[#022658]'
                       : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
                   }`}
                 >
@@ -707,7 +732,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                     {getTabCount('correction_of_place_of_birth') > 0 && (
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                         activeTab === 'correction_of_place_of_birth'
-                          ? 'bg-blue-100 text-blue-700'
+                          ? 'bg-[#E6ECF3] text-[#022658]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {getTabCount('correction_of_place_of_birth')}
@@ -719,7 +744,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   onClick={() => handleTabChange('correction_of_date_of_birth')}
                   className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
                     activeTab === 'correction_of_date_of_birth'
-                      ? 'border-blue-600 text-blue-600'
+                      ? 'border-[#022658] text-[#022658]'
                       : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
                   }`}
                 >
@@ -729,7 +754,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                     {getTabCount('correction_of_date_of_birth') > 0 && (
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                         activeTab === 'correction_of_date_of_birth'
-                          ? 'bg-blue-100 text-blue-700'
+                          ? 'bg-[#E6ECF3] text-[#022658]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {getTabCount('correction_of_date_of_birth')}
@@ -741,7 +766,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   onClick={() => handleTabChange('marriage_officer')}
                   className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
                     activeTab === 'marriage_officer'
-                      ? 'border-blue-600 text-blue-600'
+                      ? 'border-[#022658] text-[#022658]'
                       : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
                   }`}
                 >
@@ -751,10 +776,32 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                     {getTabCount('marriage_officer') > 0 && (
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
                         activeTab === 'marriage_officer'
-                          ? 'bg-blue-100 text-blue-700'
+                          ? 'bg-[#E6ECF3] text-[#022658]'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {getTabCount('marriage_officer')}
+                      </span>
+                    )}
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleTabChange('judgements_rulings')}
+                  className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+                    activeTab === 'judgements_rulings'
+                      ? 'border-[#022658] text-[#022658]'
+                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    <span>Judgements &amp; Rulings</span>
+                    {getTabCount('judgements_rulings') > 0 && (
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+                        activeTab === 'judgements_rulings'
+                          ? 'bg-[#E6ECF3] text-[#022658]'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {getTabCount('judgements_rulings')}
                       </span>
                     )}
                   </div>
@@ -772,8 +819,8 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                     type="text"
                     value={categoryFilter}
                     onChange={handleCategoryFilterChange}
-                    placeholder={`Search within ${activeTab === 'change_of_name' ? 'Change of Name' : activeTab === 'correction_of_place_of_birth' ? 'Correction of Place of Birth' : activeTab === 'correction_of_date_of_birth' ? 'Correction of Date of Birth' : 'Marriage Officers'} results...`}
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-colors"
+                    placeholder={`Search within ${activeTab === 'change_of_name' ? 'Change of Name' : activeTab === 'correction_of_place_of_birth' ? 'Correction of Place of Birth' : activeTab === 'correction_of_date_of_birth' ? 'Correction of Date of Birth' : activeTab === 'marriage_officer' ? 'Marriage Officers' : 'Judgements & Rulings'} results...`}
+                    className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] outline-none transition-colors"
                   />
                   {categoryFilter && (
                     <button
@@ -834,7 +881,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`change_of_name-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden">
+                        <div key={`change_of_name-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
                           <div className="p-5">
                             <div className="flex items-start justify-between gap-3 mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.name}</h3>
@@ -876,7 +923,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             )}
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -892,7 +939,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`correction_of_date_of_birth-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden">
+                        <div key={`correction_of_date_of_birth-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.person_name || result.name}</h3>
@@ -913,7 +960,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             </div>
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -929,7 +976,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`correction_of_place_of_birth-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden">
+                        <div key={`correction_of_place_of_birth-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.person_name || result.name}</h3>
@@ -950,7 +997,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             </div>
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -966,7 +1013,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`marriage_officer-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-blue-200 transition-all duration-300 overflow-hidden">
+                        <div key={`marriage_officer-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.officer_name || result.name}</h3>
@@ -993,10 +1040,51 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             </div>
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                if (activeTab === 'judgements_rulings') {
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      {currentResults.map((result) => (
+                        <div key={`judgements_rulings-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
+                          <div className="p-5">
+                            <div className="mb-4">
+                              <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.title || 'N/A'}</h3>
+                            </div>
+                            <div className="space-y-2.5 mb-4">
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Suit Ref:</span>
+                                <span className="text-sm font-medium text-slate-700">{result.suit_reference_number || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Court:</span>
+                                <span className="text-sm font-medium text-slate-700">{result.court_type || 'N/A'}</span>
+                              </div>
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Date:</span>
+                                <span className="text-sm font-medium text-slate-700">{formatDate(result.date)}</span>
+                              </div>
+                              <div className="flex items-center gap-2.5">
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Status:</span>
+                                <span className="text-sm font-medium text-slate-700">{result.status || 'N/A'}</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleViewCase(result)}
+                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                            >
+                              <Eye className="w-4 h-4" />
+                              View Case
                             </button>
                           </div>
                         </div>
@@ -1051,7 +1139,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                                   onClick={() => handleCategoryPageChange(pageNum)}
                                   className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                                     categoryCurrentPage === pageNum
-                                      ? 'bg-blue-600 text-white'
+                                      ? 'bg-[#022658] text-white'
                                       : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 hover:border-slate-400'
                                   }`}
                                 >
@@ -1117,7 +1205,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                 <div className="flex items-center gap-3 mb-4 justify-end">
                   <button
                     onClick={handlePrint}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 text-sm font-medium rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-[#E6ECF3] hover:bg-[#D9E3F0] text-[#022658] text-sm font-medium rounded-lg transition-colors"
                     title="Print record"
                   >
                     <Printer className="w-4 h-4" />
@@ -1125,7 +1213,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   </button>
                   <button
                     onClick={handleExport}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 text-sm font-medium rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-[#E6ECF3] hover:bg-[#D9E3F0] text-[#022658] text-sm font-medium rounded-lg transition-colors"
                     title="Export record"
                   >
                     <Download className="w-4 h-4" />
@@ -1178,7 +1266,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
 
                 {loadingDetails ? (
                   <div className="flex items-center justify-center py-12">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#022658]"></div>
                   </div>
                 ) : recordDetails ? (
                   <div className="space-y-6">

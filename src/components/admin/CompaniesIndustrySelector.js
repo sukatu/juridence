@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import CompaniesListView from './CompaniesListView';
 import MarriageVenuesListView from './MarriageVenuesListView';
 import AdminHeader from './AdminHeader';
@@ -6,6 +6,21 @@ import AdminHeader from './AdminHeader';
 const CompaniesIndustrySelector = ({ userInfo, onNavigate, onLogout }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndustry, setSelectedIndustry] = useState(null);
+  const [initialBankSelection, setInitialBankSelection] = useState(null);
+
+  useEffect(() => {
+    const storedBank = sessionStorage.getItem('selectedBankData');
+    if (storedBank) {
+      try {
+        const bankData = JSON.parse(storedBank);
+        setInitialBankSelection(bankData);
+        setSelectedIndustry({ id: 'banking', name: 'Banking & Finance' });
+      } catch (err) {
+        console.error('Error parsing selectedBankData:', err);
+      }
+      sessionStorage.removeItem('selectedBankData');
+    }
+  }, []);
 
   // Check if Marriage Venues is selected
   const isMarriageVenues = selectedIndustry?.id === 'marriage-venues';
@@ -28,6 +43,7 @@ const CompaniesIndustrySelector = ({ userInfo, onNavigate, onLogout }) => {
       <CompaniesListView
         userInfo={userInfo}
         industry={selectedIndustry}
+        initialSelectedCompany={initialBankSelection}
         onBack={() => setSelectedIndustry(null)}
         onNavigate={onNavigate}
         onLogout={onLogout}

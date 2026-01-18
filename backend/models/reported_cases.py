@@ -40,6 +40,7 @@ class ReportedCases(Base):
     c_t = Column(Integer, nullable=True)
     judgement_by = Column(String(200), nullable=True)
     status = Column(String(50), nullable=True)
+    case_progress = Column(String(50), nullable=True)
     case_summary = Column(Text, nullable=True)
     area_of_law = Column(String(200), nullable=True, index=True)
     keywords_phrases = Column(Text, nullable=True)
