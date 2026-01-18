@@ -27,6 +27,18 @@ def _table_exists(db: Session, table_name: str) -> bool:
     except Exception:
         return False
 
+
+def _to_dict_list(records):
+    formatted = []
+    for record in records:
+        if hasattr(record, "__dict__"):
+            data = record.__dict__.copy()
+            data.pop("_sa_instance_state", None)
+            formatted.append(data)
+        else:
+            formatted.append(record)
+    return formatted
+
 @router.get("/stats")
 async def get_insurance_stats(db: Session = Depends(get_db)):
     """Get comprehensive insurance statistics for admin dashboard"""
@@ -272,13 +284,13 @@ async def get_insurance_company(insurance_id: int, db: Session = Depends(get_db)
             "insurance": insurance_dict,
             "analytics": analytics_dict,
             "case_statistics": case_stats_dict,
-            "directors": directors,
-            "secretaries": secretaries,
-            "auditors": auditors,
-            "shareholders": shareholders,
-            "beneficial_owners": beneficial_owners,
-            "capital_details": capital_details,
-            "share_details": share_details,
+            "directors": _to_dict_list(directors),
+            "secretaries": _to_dict_list(secretaries),
+            "auditors": _to_dict_list(auditors),
+            "shareholders": _to_dict_list(shareholders),
+            "beneficial_owners": _to_dict_list(beneficial_owners),
+            "capital_details": _to_dict_list(capital_details),
+            "share_details": _to_dict_list(share_details),
             "related_cases": formatted_cases
         }
     except HTTPException:
