@@ -22,10 +22,10 @@ const CompaniesIndustrySelector = ({ userInfo, onNavigate, onLogout }) => {
     }
   }, []);
 
-  // Check if Marriage Venues is selected
+  // Check if Churches is selected
   const isMarriageVenues = selectedIndustry?.id === 'marriage-venues';
 
-  // If Marriage Venues is selected, show marriage venues list
+  // If Churches is selected, show marriage venues list
   if (isMarriageVenues) {
     return (
       <MarriageVenuesListView
@@ -53,7 +53,7 @@ const CompaniesIndustrySelector = ({ userInfo, onNavigate, onLogout }) => {
 
   const industries = [
     { id: 'banking', name: 'Banking & Finance', icon: '/category-icons/banking-finance.png', desc: 'View and track system activities of this industry/sector.' },
-    { id: 'marriage-venues', name: 'Marriage Venues', icon: '/category-icons/churches.png', desc: 'View and track system activities of this industry/sector.' }
+    { id: 'marriage-venues', name: 'Churches', icon: '/category-icons/churches.png', desc: 'View and track system activities of this industry/sector.' }
   ];
 
   const handleIndustrySelect = (industry) => {

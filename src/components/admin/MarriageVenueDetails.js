@@ -102,7 +102,7 @@ const MarriageVenueDetails = ({ venue, onBack, userInfo, onNavigate, onLogout })
           <div className="flex items-start mb-6">
             <span className="text-[#525866] text-xs mr-1.5 uppercase">COMPANIES</span>
             <ChevronRight className="w-4 h-4 text-[#525866] mr-1 flex-shrink-0" />
-            <span className="text-[#525866] text-xs mr-1.5 uppercase">MARRIAGE VENUES</span>
+            <span className="text-[#525866] text-xs mr-1.5 uppercase">CHURCHES</span>
             <ChevronRight className="w-4 h-4 text-[#525866] mr-1 flex-shrink-0" />
             <span className="text-[#070810] text-sm">{venueName.toUpperCase()}</span>
           </div>

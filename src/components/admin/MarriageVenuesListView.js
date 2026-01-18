@@ -138,10 +138,10 @@ const MarriageVenuesListView = ({ userInfo, onBack, onNavigate, onLogout }) => {
                 <span className="text-[#525866] text-xs uppercase">COMPANIES</span>
               </div>
               <span className="text-[#050F1C] text-xl font-semibold uppercase" style={{ fontFamily: 'Roboto' }}>
-                MARRIAGE VENUES
+                CHURCHES
               </span>
               <span className="text-[#070810] text-sm font-normal opacity-75 uppercase" style={{ fontFamily: 'Roboto' }}>
-                BROWSE THROUGH ALL MARRIAGE VENUES AND CHURCHES IN OUR DATABASE
+                BROWSE THROUGH ALL CHURCHES IN OUR DATABASE
               </span>
             </div>
           </div>
@@ -152,7 +152,7 @@ const MarriageVenuesListView = ({ userInfo, onBack, onNavigate, onLogout }) => {
               <Search className="w-3 h-3 text-[#868C98]" />
               <input
                 type="text"
-                placeholder="SEARCH MARRIAGE VENUES HERE..."
+                placeholder="SEARCH CHURCHES HERE..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 text-[#525866] bg-transparent text-xs border-0 outline-none uppercase"
@@ -233,11 +233,11 @@ const MarriageVenuesListView = ({ userInfo, onBack, onNavigate, onLogout }) => {
           {loading ? (
             <div className="flex justify-center items-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#022658]"></div>
-              <span className="ml-3 text-[#525866] text-sm uppercase">LOADING MARRIAGE VENUES...</span>
+              <span className="ml-3 text-[#525866] text-sm uppercase">LOADING CHURCHES...</span>
             </div>
           ) : venues.length === 0 ? (
             <div className="flex justify-center items-center py-12">
-              <span className="text-[#525866] text-sm uppercase">NO MARRIAGE VENUES FOUND</span>
+              <span className="text-[#525866] text-sm uppercase">NO CHURCHES FOUND</span>
             </div>
           ) : (
             <>
@@ -305,7 +305,7 @@ const MarriageVenuesListView = ({ userInfo, onBack, onNavigate, onLogout }) => {
               {totalPages > 1 && (
                 <div className="flex items-center justify-between self-stretch pt-4 border-t border-[#D4E1EA]">
                   <div className="text-sm text-[#525866] uppercase">
-                    SHOWING {((currentPage - 1) * itemsPerPage) + 1} TO {Math.min(currentPage * itemsPerPage, totalVenues)} OF {totalVenues} MARRIAGE VENUES
+                    SHOWING {((currentPage - 1) * itemsPerPage) + 1} TO {Math.min(currentPage * itemsPerPage, totalVenues)} OF {totalVenues} CHURCHES
                   </div>
                   <div className="flex items-center gap-2">
                     <button
