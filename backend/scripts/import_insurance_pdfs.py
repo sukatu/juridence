@@ -163,6 +163,31 @@ def normalize_name(name: str) -> str:
     return re.sub(r"\s+", " ", name or "").strip().upper()
 
 
+def normalize_filename(name: str) -> str:
+    if not name:
+        return ""
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", name.strip().upper()).strip("_")
+    return f"{cleaned}.png"
+
+
+def find_logo_url(name: str) -> str:
+    filename = normalize_filename(name)
+    if not filename:
+        return None
+
+    script_dir = os.path.abspath(os.path.dirname(__file__))
+    candidates = [
+        os.path.abspath(os.path.join(script_dir, "..", "build", "insurances")),
+        os.path.abspath(os.path.join(script_dir, "..", "public", "insurances")),
+    ]
+    for directory in candidates:
+        if os.path.isdir(directory):
+            candidate_path = os.path.join(directory, filename)
+            if os.path.exists(candidate_path):
+                return f"/insurances/{filename}"
+    return None
+
+
 def upsert_insurance(db, data):
     insurance = None
     if data.get("registration_number"):
@@ -224,7 +249,8 @@ def main():
                 "city": city,
                 "region": region,
                 "country": country,
-                "phone": mobile_no_1
+                "phone": mobile_no_1,
+                "logo_url": find_logo_url(entity_name)
             }
 
             insurance = upsert_insurance(session, insurance_payload)

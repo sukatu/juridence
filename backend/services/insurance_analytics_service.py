@@ -4,6 +4,7 @@ import re
 from typing import Dict, List, Any, Optional, Tuple
 from decimal import Decimal
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from models.insurance import Insurance
 from models.reported_cases import ReportedCases
 from models.insurance_analytics import InsuranceAnalytics
@@ -393,21 +394,31 @@ class InsuranceAnalyticsService:
             return None
 
     def _get_insurance_cases(self, insurance_id: int) -> List[ReportedCases]:
-        """Get cases related to an insurance company"""
-        # This is a simplified implementation
-        # In reality, you'd need to match insurance company names with case parties
+        """Get cases related to an insurance company based on title matching."""
         insurance = self.db.query(Insurance).filter(Insurance.id == insurance_id).first()
         if not insurance:
             return []
-        
-        # Search for cases where the insurance company name appears in title, protagonist, or antagonist
-        insurance_name = insurance.name
-        cases = self.db.query(ReportedCases).filter(
-            (ReportedCases.title.like(f"%{insurance_name}%")) |
-            (ReportedCases.protagonist.like(f"%{insurance_name}%")) |
-            (ReportedCases.antagonist.like(f"%{insurance_name}%"))
-        ).all()
-        
+
+        search_terms = [insurance.name]
+        if insurance.short_name:
+            search_terms.append(insurance.short_name)
+        if insurance.former_name:
+            search_terms.append(insurance.former_name)
+        if insurance.previous_names:
+            if isinstance(insurance.previous_names, list):
+                search_terms.extend(insurance.previous_names)
+            elif isinstance(insurance.previous_names, str):
+                search_terms.extend([name.strip() for name in insurance.previous_names.split(",") if name.strip()])
+
+        conditions = []
+        for term in search_terms:
+            if term:
+                conditions.append(ReportedCases.title.ilike(f"%{term}%"))
+
+        if not conditions:
+            return []
+
+        cases = self.db.query(ReportedCases).filter(or_(*conditions)).all()
         return cases
 
     def _get_case_text(self, case: ReportedCases) -> str:
