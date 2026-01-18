@@ -73,6 +73,7 @@ class CaseSearchResult(BaseModel):
     court_division: Optional[str] = None
     area_of_law: Optional[str] = None
     status: Optional[str] = None
+    case_progress: Optional[str] = None
     protagonist: Optional[str] = None
     antagonist: Optional[str] = None
     

@@ -1,15 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from database import get_db
+from sqlalchemy import inspect
 from models.insurance import Insurance
 from models.insurance_analytics import InsuranceAnalytics
 from models.insurance_case_statistics import InsuranceCaseStatistics
+from models.insurance_directors import InsuranceDirector
+from models.insurance_secretaries import InsuranceSecretary
+from models.insurance_auditors import InsuranceAuditor
+from models.insurance_shareholders import InsuranceShareholder
+from models.insurance_beneficial_owners import InsuranceBeneficialOwner
+from models.insurance_capital_details import InsuranceCapitalDetail
+from models.insurance_share_details import InsuranceShareDetail
+from services.insurance_analytics_service import InsuranceAnalyticsService
 from schemas.admin import InsuranceCreateRequest, InsuranceUpdateRequest
 from typing import List, Optional
 import math
 import json
 
 router = APIRouter()
+
+def _table_exists(db: Session, table_name: str) -> bool:
+    try:
+        inspector = inspect(db.bind)
+        return inspector.has_table(table_name)
+    except Exception:
+        return False
 
 @router.get("/stats")
 async def get_insurance_stats(db: Session = Depends(get_db)):
@@ -155,6 +171,21 @@ async def get_insurance_company(insurance_id: int, db: Session = Depends(get_db)
         # Get analytics if available
         analytics = db.query(InsuranceAnalytics).filter(InsuranceAnalytics.insurance_id == insurance_id).first()
         case_stats = db.query(InsuranceCaseStatistics).filter(InsuranceCaseStatistics.insurance_id == insurance_id).first()
+
+        directors = db.query(InsuranceDirector).filter(InsuranceDirector.insurance_id == insurance_id).all() if _table_exists(db, "insurance_directors") else []
+        secretaries = db.query(InsuranceSecretary).filter(InsuranceSecretary.insurance_id == insurance_id).all() if _table_exists(db, "insurance_secretaries") else []
+        auditors = db.query(InsuranceAuditor).filter(InsuranceAuditor.insurance_id == insurance_id).all() if _table_exists(db, "insurance_auditors") else []
+        shareholders = db.query(InsuranceShareholder).filter(InsuranceShareholder.insurance_id == insurance_id).all() if _table_exists(db, "insurance_shareholders") else []
+        beneficial_owners = db.query(InsuranceBeneficialOwner).filter(InsuranceBeneficialOwner.insurance_id == insurance_id).all() if _table_exists(db, "insurance_beneficial_owners") else []
+        capital_details = db.query(InsuranceCapitalDetail).filter(InsuranceCapitalDetail.insurance_id == insurance_id).all() if _table_exists(db, "insurance_capital_details") else []
+        share_details = db.query(InsuranceShareDetail).filter(InsuranceShareDetail.insurance_id == insurance_id).all() if _table_exists(db, "insurance_share_details") else []
+
+        related_cases = []
+        try:
+            analytics_service = InsuranceAnalyticsService(db)
+            related_cases = analytics_service._get_insurance_cases(insurance_id) or []
+        except Exception:
+            related_cases = []
         
         # Convert insurance data for API response
         insurance_dict = insurance.__dict__.copy()
@@ -210,10 +241,45 @@ async def get_insurance_company(insurance_id: int, db: Session = Depends(get_db)
         # Remove SQLAlchemy internal attributes
         insurance_dict.pop('_sa_instance_state', None)
         
+        analytics_dict = analytics.to_dict() if analytics and hasattr(analytics, 'to_dict') else analytics.__dict__ if analytics else {}
+        if analytics_dict:
+            analytics_dict.pop('_sa_instance_state', None)
+
+        case_stats_dict = case_stats.to_dict() if case_stats and hasattr(case_stats, 'to_dict') else case_stats.__dict__ if case_stats else {}
+        if case_stats_dict:
+            case_stats_dict.pop('_sa_instance_state', None)
+
+        formatted_cases = []
+        for case in related_cases:
+            formatted_cases.append({
+                "id": case.id,
+                "title": case.title,
+                "suit_reference_number": case.suit_reference_number,
+                "date": case.date.isoformat() if hasattr(case.date, "isoformat") else case.date,
+                "court_type": case.court_type,
+                "area_of_law": case.area_of_law,
+                "protagonist": case.protagonist,
+                "antagonist": case.antagonist,
+                "presiding_judge": case.presiding_judge,
+                "status": case.status,
+                "case_progress": case.case_progress,
+                "town": case.town,
+                "region": case.region,
+                "court_division": case.court_division
+            })
+
         return {
             "insurance": insurance_dict,
-            "analytics": analytics,
-            "case_statistics": case_stats
+            "analytics": analytics_dict,
+            "case_statistics": case_stats_dict,
+            "directors": directors,
+            "secretaries": secretaries,
+            "auditors": auditors,
+            "shareholders": shareholders,
+            "beneficial_owners": beneficial_owners,
+            "capital_details": capital_details,
+            "share_details": share_details,
+            "related_cases": formatted_cases
         }
     except HTTPException:
         raise
