@@ -49,21 +49,29 @@ const InsuranceDetails = ({ insurance, industry, onBack, userInfo, onNavigate, o
 
   useEffect(() => {
     const fetchInsuranceDetails = async () => {
-      if (!insuranceId) {
-        if (typeof insurance === 'object' && insurance) {
-          setInsuranceData(insurance);
-          setLoading(false);
-        } else {
-          setError('Insurance ID not found');
-          setLoading(false);
-        }
-        return;
-      }
-
       try {
         setLoading(true);
         setError(null);
-        const response = await apiGet(`/admin/insurance/${insuranceId}`);
+        let resolvedId = insuranceId;
+
+        if (!resolvedId && insuranceName) {
+          const lookup = await apiGet('/insurance/search', { name: insuranceName, limit: 1 });
+          const match = lookup?.insurance?.[0];
+          resolvedId = match?.id || null;
+        }
+
+        if (!resolvedId) {
+          if (typeof insurance === 'object' && insurance) {
+            setInsuranceData(insurance);
+            setLoading(false);
+          } else {
+            setError('Insurance ID not found');
+            setLoading(false);
+          }
+          return;
+        }
+
+        const response = await apiGet(`/admin/insurance/${resolvedId}`);
         setInsuranceData(response);
       } catch (err) {
         console.error('Error fetching insurance details:', err);
