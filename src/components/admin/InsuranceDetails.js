@@ -47,6 +47,8 @@ const InsuranceDetails = ({ insurance, industry, onBack, userInfo, onNavigate, o
     ? insurance
     : (insurance?.name || insurance?.short_name || 'Unknown Insurance');
 
+  const normalizeName = (name) => (name || '').trim().toLowerCase();
+
   useEffect(() => {
     const fetchInsuranceDetails = async () => {
       try {
@@ -72,6 +74,21 @@ const InsuranceDetails = ({ insurance, industry, onBack, userInfo, onNavigate, o
         }
 
         const response = await apiGet(`/admin/insurance/${resolvedId}`);
+
+        const responseName = normalizeName(response?.insurance?.name || response?.name);
+        const expectedName = normalizeName(insuranceName);
+
+        if ((expectedName && responseName && responseName !== expectedName) ||
+            (expectedName && (!response?.directors || response?.directors?.length === 0))) {
+          const lookup = await apiGet('/insurance/search', { name: insuranceName, limit: 1 });
+          const match = lookup?.insurance?.[0];
+          if (match?.id && match.id !== resolvedId) {
+            const refreshed = await apiGet(`/admin/insurance/${match.id}`);
+            setInsuranceData(refreshed);
+            return;
+          }
+        }
+
         setInsuranceData(response);
       } catch (err) {
         console.error('Error fetching insurance details:', err);
