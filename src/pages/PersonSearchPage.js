@@ -506,6 +506,30 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
     }
   };
 
+  const getCourtTypeName = (courtType) => {
+    if (!courtType) return 'N/A';
+    const courtTypeMap = {
+      'SC': 'Supreme Court',
+      'CA': 'Court of Appeal',
+      'HC': 'High Court',
+      'DC': 'District Court',
+      'CC': 'Circuit Court',
+      'FC': 'Family Court',
+      'LC': 'Land Court',
+      'COM': 'Commercial Court',
+      'H': 'High Court',
+      'high_court': 'High Court',
+      'supreme_court': 'Supreme Court',
+      'court_of_appeal': 'Court of Appeal',
+      'circuit_court': 'Circuit Court',
+      'district_court': 'District Court',
+      'commercial_court': 'Commercial Court',
+      'family_court': 'Family Court',
+      'land_court': 'Land Court',
+    };
+    return courtTypeMap[courtType] || courtType;
+  };
+
   // Render search form
   const renderSearchForm = () => (
     <div className="bg-[#F7F8FA] min-h-screen">
@@ -1068,7 +1092,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                               </div>
                               <div className="flex items-center gap-2.5">
                                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Court:</span>
-                                <span className="text-sm font-medium text-slate-700">{result.court_type || 'N/A'}</span>
+                                <span className="text-sm font-medium text-slate-700">{getCourtTypeName(result.court_type)}</span>
                               </div>
                               <div className="flex items-center gap-2.5">
                                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Date:</span>
