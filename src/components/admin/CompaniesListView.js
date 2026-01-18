@@ -3,6 +3,7 @@ import { apiGet } from '../../utils/api';
 import { ChevronRight, Filter, X, ArrowLeft, Building2, Search } from 'lucide-react';
 import CompanyDetails from './CompanyDetails';
 import BankDetails from './BankDetails';
+import InsuranceDetails from './InsuranceDetails';
 import AddCompanyForm from './AddCompanyForm';
 import AdminHeader from './AdminHeader';
 
@@ -25,8 +26,9 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
   // Debounce ref for search
   const searchTimeoutRef = useRef(null);
 
-  // Check if this is Banking & Finance industry
+  // Check if this is Banking & Finance or Insurance industry
   const isBankingFinance = industry?.id === 'banking' || industry?.name?.toLowerCase() === 'banking & finance' || industry?.name?.toLowerCase() === 'banking and finance';
+  const isInsurance = industry?.id === 'insurance' || industry?.name?.toLowerCase() === 'insurance';
 
   // Bank logo mapping - maps bank names to actual logo files
   const bankLogoMap = {
@@ -181,6 +183,11 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
     return '/companies/default-company.svg';
   };
 
+  const getInsuranceLogo = (logoUrl) => {
+    if (logoUrl) return logoUrl;
+    return '/category-icons/insurance.png';
+  };
+
   // Fetch companies/banks function
   const fetchCompanies = async (searchTerm = '', companyType = '', status = '') => {
     try {
@@ -239,6 +246,54 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
           setCompanies([]);
           setCompaniesData([]);
         }
+      } else if (isInsurance) {
+        const params = new URLSearchParams();
+        params.append('page', '1');
+        params.append('limit', '100');
+        params.append('sort_by', 'name');
+        params.append('sort_order', 'asc');
+
+        if (searchTerm.trim()) {
+          params.append('query', searchTerm.trim());
+        }
+
+        if (companyType) {
+          params.append('insurance_type', companyType);
+        }
+
+        const response = await fetch(`/api/insurance/search?${params.toString()}`, {
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          let insuranceCompanies = data.insurance || [];
+
+          if (status) {
+            insuranceCompanies = insuranceCompanies.filter(insurance => {
+              const insuranceStatus = insurance.status || (insurance.is_active ? 'Active' : 'Inactive');
+              return insuranceStatus.toLowerCase() === status.toLowerCase();
+            });
+          }
+
+          setCompaniesData(insuranceCompanies);
+          const insuranceNames = insuranceCompanies
+            .map(insurance => {
+              if (typeof insurance === 'string') return insurance;
+              if (insurance && typeof insurance === 'object') {
+                return insurance?.name || insurance?.short_name || `Insurance ${insurance?.id || 'Unknown'}`;
+              }
+              return String(insurance || 'Unknown');
+            })
+            .filter(name => typeof name === 'string');
+          setCompanies(insuranceNames);
+        } else {
+          const errorData = await response.json();
+          console.error('Error fetching insurance:', errorData);
+          setError('Failed to load insurance companies. Please try again.');
+          setCompanies([]);
+          setCompaniesData([]);
+        }
       } else {
         // Fetch companies from companies table (original logic)
       const params = new URLSearchParams();
@@ -285,7 +340,7 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
       }
     } catch (err) {
       console.error('Error fetching data:', err);
-      setError(`Failed to load ${isBankingFinance ? 'banks' : 'companies'}. Please try again.`);
+      setError(`Failed to load ${isBankingFinance ? 'banks' : isInsurance ? 'insurance companies' : 'companies'}. Please try again.`);
       setCompanies([]);
       setCompaniesData([]);
     } finally {
@@ -378,11 +433,23 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
 
   // If a company is selected, show company details or bank details
   if (selectedCompany) {
-    // Use BankDetails for Banking & Finance, CompanyDetails for others
+    // Use BankDetails for Banking & Finance, InsuranceDetails for Insurance, CompanyDetails for others
     if (isBankingFinance) {
       return (
         <BankDetails
           bank={selectedCompany}
+          industry={industry}
+          onBack={() => setSelectedCompany(null)}
+          userInfo={userInfo}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+        />
+      );
+    }
+    if (isInsurance) {
+      return (
+        <InsuranceDetails
+          insurance={selectedCompany}
           industry={industry}
           onBack={() => setSelectedCompany(null)}
           userInfo={userInfo}
@@ -428,13 +495,17 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                   </button>
                   <div className="flex items-center w-[122px] gap-1">
                     <Building2 className="w-4 h-4 text-[#040E1B]" />
-                    <span className="text-[#040E1B] text-xl font-bold">Banks</span>
+                    <span className="text-[#040E1B] text-xl font-bold">
+                      {isBankingFinance ? 'Banks' : isInsurance ? 'Insurance' : 'Companies'}
+                    </span>
                   </div>
                 </div>
                 <span className="text-[#070810] text-sm">
                   {isBankingFinance 
                     ? 'Browse through all banks in our database'
-                    : 'Search through all the companies in our database'}
+                    : isInsurance
+                      ? 'Browse through all insurance companies in our database'
+                      : 'Search through all the companies in our database'}
                 </span>
               </div>
 
@@ -457,7 +528,7 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                   <Search className="w-3 h-3 text-[#868C98]" />
                   <input
                     type="text"
-                    placeholder={isBankingFinance ? "Search banks by name..." : "Search by name, registration number, or industry..."}
+                    placeholder={isBankingFinance ? "Search banks by name..." : isInsurance ? "Search insurance by name..." : "Search by name, registration number, or industry..."}
                     value={searchCompanyQuery}
                     onChange={(e) => setSearchCompanyQuery(e.target.value)}
                     className="flex-1 text-[#525866] bg-transparent text-xs border-0 outline-none"
@@ -508,6 +579,24 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                           <option value="Development">Development</option>
                           <option value="Merchant">Merchant</option>
                           <option value="Rural">Rural</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                    </>
+                  ) : isInsurance ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-[#525866] font-medium whitespace-nowrap">Insurance Type:</label>
+                        <select
+                          value={companyTypeFilter}
+                          onChange={(e) => setCompanyTypeFilter(e.target.value)}
+                          className="px-3 py-2 text-xs text-[#525866] bg-white border border-solid border-[#D4E1EA] rounded-lg outline-none focus:border-[#022658]"
+                        >
+                          <option value="">All Types</option>
+                          <option value="Life">Life</option>
+                          <option value="General">General</option>
+                          <option value="Health">Health</option>
+                          <option value="Reinsurance">Reinsurance</option>
                           <option value="Other">Other</option>
                         </select>
                       </div>
@@ -563,7 +652,7 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
           {/* Companies/Banks List - Two Columns */}
           {loading ? (
             <div className="flex justify-center items-center py-12">
-              <span className="text-[#525866] text-sm">Loading {isBankingFinance ? 'banks' : 'companies'}...</span>
+              <span className="text-[#525866] text-sm">Loading {isBankingFinance ? 'banks' : isInsurance ? 'insurance companies' : 'companies'}...</span>
             </div>
           ) : error ? (
             <div className="flex justify-center items-center py-12">
@@ -573,8 +662,8 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
             <div className="flex justify-center items-center py-12">
               <span className="text-[#525866] text-sm">
                 {hasActiveFilters 
-                  ? `No ${isBankingFinance ? 'banks' : 'companies'} found matching your filters.` 
-                  : `No ${isBankingFinance ? 'banks' : 'companies'} found for this industry.`}
+                  ? `No ${isBankingFinance ? 'banks' : isInsurance ? 'insurance companies' : 'companies'} found matching your filters.` 
+                  : `No ${isBankingFinance ? 'banks' : isInsurance ? 'insurance companies' : 'companies'} found for this industry.`}
               </span>
             </div>
           ) : (
@@ -590,10 +679,12 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                   return cName === nameStr;
                 });
                 
-                // Get logo for banks
+                // Get logo for banks/insurance
                 const logo = isBankingFinance && companyObj 
                   ? getBankLogo(companyObj.name || nameStr, companyObj.logo_url) 
-                  : null;
+                  : isInsurance && companyObj
+                    ? getInsuranceLogo(companyObj.logo_url)
+                    : null;
                 
                 return (
                   <button
@@ -603,7 +694,7 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                     style={{boxShadow: '0px 2px 20px #0000000D'}}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {isBankingFinance && (
+                      {(isBankingFinance || isInsurance) && (
                         <img
                           src={logo || '/companies/default-company.svg'}
                           alt={nameStr}
@@ -637,10 +728,12 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                   return cName === nameStr;
                 });
                 
-                // Get logo for banks
+                // Get logo for banks/insurance
                 const logo = isBankingFinance && companyObj 
                   ? getBankLogo(companyObj.name || nameStr, companyObj.logo_url) 
-                  : null;
+                  : isInsurance && companyObj
+                    ? getInsuranceLogo(companyObj.logo_url)
+                    : null;
                 
                 return (
                   <button
@@ -650,7 +743,7 @@ const CompaniesListView = ({ userInfo, industry, onBack, onNavigate, onLogout, i
                     style={{boxShadow: '0px 2px 20px #0000000D'}}
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      {isBankingFinance && (
+                      {(isBankingFinance || isInsurance) && (
                         <img
                           src={logo || '/companies/default-company.svg'}
                           alt={nameStr}

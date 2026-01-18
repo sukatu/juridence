@@ -53,6 +53,7 @@ const CompaniesIndustrySelector = ({ userInfo, onNavigate, onLogout }) => {
 
   const industries = [
     { id: 'banking', name: 'Banking & Finance', icon: '/category-icons/banking-finance.png', desc: 'View and track system activities of this industry/sector.' },
+    { id: 'insurance', name: 'Insurance', icon: '/category-icons/insurance.png', desc: 'View and track system activities of this industry/sector.' },
     { id: 'marriage-venues', name: 'Churches', icon: '/category-icons/churches.png', desc: 'View and track system activities of this industry/sector.' }
   ];
 
