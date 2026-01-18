@@ -291,6 +291,14 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
                 onNavigate('companies');
                 return;
               }
+              if (backTarget?.type === 'person_search') {
+                if (backTarget?.state) {
+                  sessionStorage.setItem('personSearchState', JSON.stringify(backTarget.state));
+                }
+                sessionStorage.removeItem('caseBackTarget');
+                onNavigate('person-search');
+                return;
+              }
             } catch (err) {
               console.error('Failed to parse caseBackTarget:', err);
             }

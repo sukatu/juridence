@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import AdminHeader from '../components/admin/AdminHeader';
 import { Search, X, ChevronDown, ChevronUp, Database, User, Calendar, MapPin, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileText, Eye, Download, Printer, Flag, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiGet } from '../utils/api';
@@ -32,6 +32,32 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
   const [pageLimit] = useState(100); // Items per page
+
+  useEffect(() => {
+    const storedState = sessionStorage.getItem('personSearchState');
+    if (!storedState) return;
+    try {
+      const parsed = JSON.parse(storedState);
+      if (parsed.searchData) setSearchData(parsed.searchData);
+      if (parsed.searchResults) setSearchResults(parsed.searchResults);
+      if (parsed.searchQuery) setSearchQuery(parsed.searchQuery);
+      if (parsed.activeTab) setActiveTab(parsed.activeTab);
+      if (typeof parsed.categoryFilter === 'string') setCategoryFilter(parsed.categoryFilter);
+      if (typeof parsed.categoryCurrentPage === 'number') setCategoryCurrentPage(parsed.categoryCurrentPage);
+      if (typeof parsed.sortOrder === 'string') setSortOrder(parsed.sortOrder);
+      if (typeof parsed.totalResults === 'number') setTotalResults(parsed.totalResults);
+      if (typeof parsed.totalPages === 'number') setTotalPages(parsed.totalPages);
+      if (typeof parsed.currentPage === 'number') setCurrentPage(parsed.currentPage);
+      setShowResults(true);
+      setIsSearching(false);
+      setSearchProgress(100);
+      setSearchError(null);
+    } catch (error) {
+      console.error('Error restoring person search state:', error);
+    } finally {
+      sessionStorage.removeItem('personSearchState');
+    }
+  }, []);
 
   const databaseOptions = [
     {
@@ -400,15 +426,41 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
   };
 
   const handleViewCase = async (caseItem) => {
+    const personSearchState = {
+      searchData,
+      searchResults,
+      searchQuery,
+      activeTab,
+      categoryFilter,
+      categoryCurrentPage,
+      sortOrder,
+      totalResults,
+      totalPages,
+      currentPage
+    };
     try {
       const fullCaseData = await apiGet(`/cases/${caseItem.id}`);
-      sessionStorage.setItem('selectedCaseData', JSON.stringify(fullCaseData));
+      sessionStorage.setItem('personSearchState', JSON.stringify(personSearchState));
+      sessionStorage.setItem('caseBackTarget', JSON.stringify({
+        type: 'person_search',
+        state: personSearchState
+      }));
+      sessionStorage.setItem('selectedCaseData', JSON.stringify({
+        ...fullCaseData
+      }));
       if (onNavigate) {
         onNavigate('case-profile');
       }
     } catch (error) {
       console.error('Error fetching case details:', error);
-      sessionStorage.setItem('selectedCaseData', JSON.stringify(caseItem));
+      sessionStorage.setItem('personSearchState', JSON.stringify(personSearchState));
+      sessionStorage.setItem('caseBackTarget', JSON.stringify({
+        type: 'person_search',
+        state: personSearchState
+      }));
+      sessionStorage.setItem('selectedCaseData', JSON.stringify({
+        ...caseItem
+      }));
       if (onNavigate) {
         onNavigate('case-profile');
       }
@@ -528,6 +580,22 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
       'land_court': 'Land Court',
     };
     return courtTypeMap[courtType] || courtType;
+  };
+
+  const getCaseProgressBadge = (progress) => {
+    const lowerProgress = progress?.toLowerCase();
+    if (!lowerProgress) return { text: 'N/A', className: 'bg-gray-100 text-gray-600' };
+
+    if (['closed', 'judgment', 'judgement', 'ruling', 'motion - completed', 'pre-trial - completed', 'concluded', 'resolved'].includes(lowerProgress)) {
+      return { text: progress, className: 'bg-green-100 text-green-600' };
+    }
+    if (['process service', 'case filed', 'ongoing', 'in progress', 'new', 'pending', 'hearing'].includes(lowerProgress)) {
+      return { text: progress, className: 'bg-yellow-100 text-yellow-600' };
+    }
+    if (['motion - struck out'].includes(lowerProgress)) {
+      return { text: progress, className: 'bg-red-100 text-red-600' };
+    }
+    return { text: progress, className: 'bg-gray-100 text-gray-600' };
   };
 
   // Render search form
@@ -1099,8 +1167,15 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                                 <span className="text-sm font-medium text-slate-700">{formatDate(result.date)}</span>
                               </div>
                               <div className="flex items-center gap-2.5">
-                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Status:</span>
-                                <span className="text-sm font-medium text-slate-700">{result.status || 'N/A'}</span>
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Progress:</span>
+                                {(() => {
+                                  const badge = getCaseProgressBadge(result.case_progress);
+                                  return (
+                                    <span className={`inline-flex px-2 py-1 rounded-lg text-xs font-medium ${badge.className}`}>
+                                      {badge.text}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             </div>
                             <button
