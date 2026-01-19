@@ -85,25 +85,88 @@ def extract_section(text: str, start_key: str, end_keys):
 
 def extract_officers(section_lines, role_label):
     officers = []
+    role_pattern = re.compile(rf"\b{re.escape(role_label)}\b", re.IGNORECASE)
+    tin_pattern = re.compile(r"\b[PC]\d{7,}\b", re.IGNORECASE)
+    line_pattern = re.compile(rf"(?P<name>[^\d]+?)\s+(?P<position>{re.escape(role_label)})\s+(?P<tin>[PC]\d{{7,}})", re.IGNORECASE)
+
     for line in section_lines:
-        if role_label.lower() not in line.lower():
+        if not role_pattern.search(line):
             continue
         if "Entity / Company Name" in line:
             continue
+
+        matches = list(line_pattern.finditer(line))
+        if matches:
+            for match in matches:
+                name = match.group("name").strip()
+                tin = match.group("tin").strip()
+                position = match.group("position").strip()
+                if not name:
+                    continue
+                officers.append({
+                    "full_name": name,
+                    "position": position,
+                    "tin": tin,
+                    "is_individual": tin.upper().startswith("P")
+                })
+            continue
+
         parts = line.split()
         if len(parts) < 2:
             continue
-        tin = parts[-1]
-        position = parts[-2]
-        name = " ".join(parts[:-2]).strip()
+        tin_matches = tin_pattern.findall(line)
+        if not tin_matches:
+            continue
+        tin = tin_matches[-1]
+        position = role_label
+        name = line.replace(tin, "").replace(role_label, "").strip()
         if not name:
             continue
         officers.append({
             "full_name": name,
             "position": position,
-            "tin": tin
+            "tin": tin,
+            "is_individual": tin.upper().startswith("P")
         })
     return officers
+
+
+def normalize_officer_lines(section_lines, role_labels):
+    normalized = []
+    header_pattern = re.compile(r"Entity\s*/\s*Company\s*Name|First\s+Name|Position\s+Held|\bTIN\b", re.IGNORECASE)
+    section_pattern = re.compile(r"^(Directors Details|Secretary Details|Auditor Details)$", re.IGNORECASE)
+    role_pattern = re.compile(r"|".join([rf"\b{re.escape(label)}\b" for label in role_labels]), re.IGNORECASE)
+    tin_pattern = re.compile(r"\b[PC]\d{7,}\b", re.IGNORECASE)
+
+    i = 0
+    while i < len(section_lines):
+        line = (section_lines[i] or "").strip()
+        i += 1
+        if not line:
+            continue
+        if section_pattern.match(line):
+            continue
+        if header_pattern.search(line):
+            continue
+
+        if line.endswith("-") and i < len(section_lines):
+            next_line = (section_lines[i] or "").strip()
+            if next_line:
+                candidate = f"{line.rstrip('-').strip()} {next_line}".strip()
+                line = candidate
+                i += 1
+
+        if section_pattern.match(line) or header_pattern.search(line):
+            continue
+
+        has_role = bool(role_pattern.search(line))
+        has_tin = bool(tin_pattern.search(line))
+        if not has_role and not has_tin:
+            continue
+
+        normalized.append(line)
+
+    return normalized
 
 
 def extract_shareholders(section_lines):
@@ -264,27 +327,34 @@ def main():
             session.query(InsuranceShareDetail).filter(InsuranceShareDetail.insurance_id == insurance.id).delete()
 
             officer_section = extract_section(text, "Company Officer Detail", ["Company Capital Details", "Company Capital Detail"])
-            directors = extract_officers(officer_section, "Director")
-            secretaries = extract_officers(officer_section, "Secretary")
-            auditors = extract_officers(officer_section, "Auditor")
+            officer_lines = normalize_officer_lines(officer_section, ["Director", "Secretary", "Auditor"])
+            directors = extract_officers(officer_lines, "Director")
+            secretaries = extract_officers(officer_lines, "Secretary")
+            auditors = extract_officers(officer_lines, "Auditor")
 
             for director in directors:
                 session.add(InsuranceDirector(
                     insurance_id=insurance.id,
                     full_name=director["full_name"],
-                    position=director["position"]
+                    position=director["position"],
+                    id_number=director.get("tin")
                 ))
 
             for secretary in secretaries:
                 session.add(InsuranceSecretary(
                     insurance_id=insurance.id,
-                    name=secretary["full_name"]
+                    name=secretary["full_name"],
+                    is_individual=secretary.get("is_individual", True),
+                    id_number=secretary.get("tin") if secretary.get("is_individual", True) else None,
+                    company_registration_number=secretary.get("tin") if not secretary.get("is_individual", True) else None
                 ))
 
             for auditor in auditors:
                 session.add(InsuranceAuditor(
                     insurance_id=insurance.id,
-                    name=auditor["full_name"]
+                    name=auditor["full_name"],
+                    is_individual=auditor.get("is_individual", False),
+                    firm_registration_number=auditor.get("tin") if not auditor.get("is_individual", False) else None
                 ))
 
             capital = extract_capital(text)
