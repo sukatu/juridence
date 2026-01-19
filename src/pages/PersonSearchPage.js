@@ -28,6 +28,8 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [showReportIssueModal, setShowReportIssueModal] = useState(false);
   const [issueReport, setIssueReport] = useState({ subject: '', description: '' });
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [summaryRecord, setSummaryRecord] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
@@ -423,6 +425,16 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
     } finally {
       setLoadingDetails(false);
     }
+  };
+
+  const handleViewSummary = (result) => {
+    setSummaryRecord(result);
+    setShowSummaryModal(true);
+  };
+
+  const handleCloseSummary = () => {
+    setShowSummaryModal(false);
+    setSummaryRecord(null);
   };
 
   const handleViewCase = async (caseItem) => {
@@ -1178,13 +1190,22 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                                 })()}
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleViewCase(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-                            >
-                              <Eye className="w-4 h-4" />
-                              View Case
-                            </button>
+                            <div className="mt-5 flex flex-col gap-3">
+                              <button
+                                onClick={() => handleViewSummary(result)}
+                                className="w-full px-4 py-2.5 bg-[#E6ECF3] text-[#022658] text-sm font-semibold rounded-lg hover:bg-[#D9E3F0] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
+                              >
+                                <FileText className="w-4 h-4" />
+                                View Summary
+                              </button>
+                              <button
+                                onClick={() => handleViewCase(result)}
+                                className="w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              >
+                                <Eye className="w-4 h-4" />
+                                View Case
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1674,6 +1695,40 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                     <p className="text-slate-600">Failed to load record details</p>
                   </div>
                 )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Summary Modal */}
+        {showSummaryModal && (
+          <>
+            <div
+              className="fixed inset-0 bg-black bg-opacity-50 z-50 backdrop-blur-sm"
+              onClick={handleCloseSummary}
+            ></div>
+
+            <div
+              className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-2xl z-50 p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={handleCloseSummary}
+                className="absolute top-6 right-6 w-6 h-6 flex items-center justify-center hover:opacity-70 transition-opacity"
+              >
+                <X className="w-6 h-6 text-slate-700" />
+              </button>
+
+              <div className="pr-8">
+                <div className="mb-4">
+                  <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Summary</span>
+                  <h3 className="text-xl font-bold text-slate-900 mt-2">
+                    {summaryRecord?.title || 'Case Summary'}
+                  </h3>
+                </div>
+                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-700 whitespace-pre-wrap">
+                  {summaryRecord?.case_summary || 'Summary not available for this case yet.'}
+                </div>
               </div>
             </div>
           </>
