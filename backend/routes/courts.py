@@ -25,6 +25,25 @@ def normalize_region_value(value: str) -> str:
     lowered = re.sub(r"\bregion\b", "", lowered)
     return re.sub(r"[\s\-]+", "", lowered).strip()
 
+
+def extract_town_name(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    cleaned = value.replace("–", "-").replace("—", "-").strip()
+    if "," in cleaned:
+        cleaned = cleaned.split(",", 1)[1].strip()
+    if " Court" in cleaned:
+        cleaned = re.split(r"\s+Court\b", cleaned, maxsplit=1, flags=re.IGNORECASE)[0].strip()
+    # Remove trailing court-type qualifiers
+    cleaned = re.sub(
+        r"\b(High|Circuit|District|Commercial|Family|Land|Probate|Criminal|General|Human|Rights|Labour|Financial|Economic|Gender|Based|Violence|GBVC)\b$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE
+    ).strip(" -")
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned or None
+
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two points in kilometers using Haversine formula"""
     R = 6371  # Earth's radius in kilometers
@@ -188,12 +207,22 @@ def get_cities(
 ):
     """Get all unique cities, optionally filtered by region"""
     try:
-        query = db.query(Court.city).distinct()
+        query = db.query(Court)
         if region:
             query = query.filter(Court.region.ilike(f"%{region}%"))
-        
-        cities = query.all()
-        return [city[0] for city in cities if city[0]]
+        cities = query.with_entities(Court.city, Court.name, Court.location).all()
+
+        town_set = set()
+        for city, name, location in cities:
+            if city:
+                town_set.add(city)
+                continue
+            for candidate in [location, name]:
+                town = extract_town_name(candidate)
+                if town:
+                    town_set.add(town)
+
+        return sorted(town_set)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching cities: {str(e)}")
 
