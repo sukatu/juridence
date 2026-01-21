@@ -629,7 +629,17 @@ def seed_courts():
     inserted = 0
 
     try:
-        db.execute(text("SELECT setval('courts_id_seq', (SELECT COALESCE(MAX(id), 0) FROM courts))"))
+        db.execute(text("""
+            SELECT setval(
+                'courts_id_seq',
+                CASE
+                    WHEN (SELECT COALESCE(MAX(id), 0) FROM courts) > 0
+                    THEN (SELECT MAX(id) FROM courts)
+                    ELSE 1
+                END,
+                false
+            )
+        """))
         for court in courts:
             name = court["name"]
             court_type = court["court_type"]
