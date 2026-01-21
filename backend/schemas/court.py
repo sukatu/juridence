@@ -9,6 +9,7 @@ class CourtType(str, Enum):
     DISTRICT_COURT = "District Court"
     SUPREME_COURT = "Supreme Court"
     APPEAL_COURT = "Appeal Court"
+    COURT_OF_APPEAL = "Court of Appeal"
     MAGISTRATE_COURT = "Magistrate Court"
     FAMILY_COURT = "Family Court"
     COMMERCIAL_COURT = "Commercial Court"

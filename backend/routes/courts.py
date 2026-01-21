@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, and_, or_, text
 from typing import List, Optional
+import re
 import math
 
 from database import get_db
@@ -15,6 +16,14 @@ from schemas.court import (
 )
 
 router = APIRouter()
+
+
+def normalize_region_value(value: str) -> str:
+    if not value:
+        return value
+    lowered = value.lower()
+    lowered = re.sub(r"\bregion\b", "", lowered)
+    return re.sub(r"[\s\-]+", "", lowered).strip()
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate distance between two points in kilometers using Haversine formula"""
@@ -55,7 +64,17 @@ def get_courts(
         if court_type:
             query = query.filter(Court.court_type == court_type)
         if region:
-            query = query.filter(Court.region.ilike(f"%{region}%"))
+            normalized = normalize_region_value(region)
+            normalized_db = func.replace(
+                func.replace(
+                    func.replace(func.lower(Court.region), "region", ""),
+                    "-",
+                    ""
+                ),
+                " ",
+                ""
+            )
+            query = query.filter(normalized_db == normalized)
         if city:
             query = query.filter(Court.city.ilike(f"%{city}%"))
         
@@ -114,7 +133,17 @@ def search_courts(
         if court_type:
             search_query = search_query.filter(Court.court_type == court_type)
         if region:
-            search_query = search_query.filter(Court.region.ilike(f"%{region}%"))
+            normalized = normalize_region_value(region)
+            normalized_db = func.replace(
+                func.replace(
+                    func.replace(func.lower(Court.region), "region", ""),
+                    "-",
+                    ""
+                ),
+                " ",
+                ""
+            )
+            search_query = search_query.filter(normalized_db == normalized)
         if city:
             search_query = search_query.filter(Court.city.ilike(f"%{city}%"))
         if district:
