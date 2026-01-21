@@ -84,7 +84,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     },
     {
       name: 'Circuit Court',
-      image: encodeURI('/courts/circuit-court.png')
+      image: encodeURI('/courts/curcuit-court.png')
     },
     {
       name: 'District Court',
@@ -434,7 +434,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     if (normalized.includes('supreme')) return '/courts/supreme-court.png';
     if (normalized.includes('appeal')) return '/courts/court-of-appeal.png';
     if (normalized.includes('high')) return '/courts/high-court.png';
-    if (normalized.includes('circuit')) return '/courts/circuit-court.png';
+    if (normalized.includes('circuit')) return '/courts/curcuit-court.png';
     if (normalized.includes('district')) return '/courts/district-court.png';
     return '/courts/image.png';
   };
