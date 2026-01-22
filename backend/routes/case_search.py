@@ -18,6 +18,15 @@ import re
 
 router = APIRouter()
 
+
+def get_case_metadata_safe(case: ReportedCases, db: Session):
+    try:
+        return case.case_metadata
+    except Exception as exc:
+        db.rollback()
+        logging.warning("Failed to load case_metadata for case_id=%s: %s", case.id, exc)
+        return None
+
 @router.get("/search", response_model=CaseSearchResponse)
 async def search_cases(
     query: str = Query(..., min_length=2, description="Search query"),
@@ -88,7 +97,7 @@ async def search_cases(
         relevance_score = calculate_relevance_score(case, query)
         
         # Get metadata if available
-        metadata = case.case_metadata
+        metadata = get_case_metadata_safe(case, db)
         case_result = CaseSearchResult(
             id=case.id,
             title=case.title or "",
@@ -191,7 +200,7 @@ async def get_person_cases(
     results = []
     for case in cases:
         relevance_score = calculate_relevance_score(case, person_name)
-        metadata = case.case_metadata
+        metadata = get_case_metadata_safe(case, db)
         
         case_result = CaseSearchResult(
             id=case.id,
