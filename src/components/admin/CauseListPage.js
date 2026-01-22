@@ -539,7 +539,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
 
     apiPost('/admin/judges', payload)
       .then(() => {
-        setShowAddJudgeForm(false);
+    setShowAddJudgeForm(false);
         setActiveCourtContext(null);
       })
       .catch((err) => {
@@ -616,7 +616,12 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     return (
       <div className="bg-[#F7F8FA] min-h-screen">
         {/* Full Width Header */}
-        <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
+        <AdminHeader
+          userInfo={userInfo}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+          contextLabel={selectedCourt}
+        />
 
         {/* Main Content */}
         <div className="px-6">
@@ -828,8 +833,8 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                       >
                         <div className="flex items-center justify-between gap-2 mb-2">
                           <span className="text-[#040E1B] text-base font-semibold">
-                            {court.name}
-                          </span>
+                      {court.name}
+                    </span>
                           <span className="text-xs font-semibold text-[#F59E0B] bg-[#FFF7E6] px-2 py-1 rounded-full">
                             {court.court_type}
                           </span>
@@ -839,10 +844,10 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                         </div>
                         <div className="text-sm text-[#525866]">
                           {court.location || court.address || 'N/A'}
-                        </div>
-                      </div>
-                    ))}
                   </div>
+                </div>
+              ))}
+            </div>
 
                   {courtsTotalPages > 1 && (
                     <div className="flex items-center justify-between mt-4">
@@ -1020,8 +1025,8 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                   <div className="flex flex-col md:flex-row md:items-center gap-3 w-full">
                     <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md min-w-0">
                       <Search className="w-4 h-4 text-[#868C98] mr-2" />
-                      <input
-                        type="text"
+                <input
+                  type="text"
                         value={courtsSearchQuery}
                         onChange={(e) => {
                           setCourtsSearchQuery(e.target.value);
@@ -1094,51 +1099,51 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                       <div
                         key={court.id}
                         className="flex flex-col items-start bg-white p-4 gap-4 rounded-lg border border-solid border-[#D4E1EA] hover:shadow-lg transition-shadow"
-                        style={{ boxShadow: '4px 4px 4px #0708101A' }}
-                      >
+                      style={{ boxShadow: '4px 4px 4px #0708101A' }}
+                    >
                         <div className="flex flex-col items-start gap-2 min-w-0">
                           <span className="text-[#040E1B] text-lg font-semibold break-words">
                             {court.name}
-                          </span>
+                        </span>
                           {court.court_division && (
-                            <span className="text-[#040E1B] text-sm font-normal">
+                        <span className="text-[#040E1B] text-sm font-normal">
                               Division: {court.court_division}
-                            </span>
-                          )}
+                          </span>
+                        )}
                           {court.region && (
-                            <span className="text-[#040E1B] text-sm font-normal">
+                          <span className="text-[#040E1B] text-sm font-normal">
                               Region: {court.region}
-                            </span>
-                          )}
+                          </span>
+                        )}
                           {court.location && (
-                            <span className="text-[#040E1B] text-sm font-normal">
+                          <span className="text-[#040E1B] text-sm font-normal">
                               Location: {court.location}
-                            </span>
-                          )}
-                        </div>
-
+                          </span>
+                        )}
+                      </div>
+                      
                         <div className="flex flex-col items-start self-stretch gap-2">
-                          <button
+                        <button
                             onClick={() => {
                               setActiveCourtContext(court);
                               setShowAddCaseForm(true);
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors w-full"
-                          >
-                            <Plus className="w-4 h-4" />
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors w-full"
+                        >
+                          <Plus className="w-4 h-4" />
                             <span className="text-sm font-medium">Add Case</span>
-                          </button>
-                          <button
+                        </button>
+                        <button
                             onClick={() => {
                               setActiveCourtContext(court);
                               setShowAddJudgeForm(true);
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors w-full"
-                          >
-                            <Plus className="w-4 h-4" />
-                            <span className="text-sm font-medium">Add New Judge</span>
-                          </button>
-                          <button
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors w-full"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span className="text-sm font-medium">Add New Judge</span>
+                        </button>
+                        <button
                             onClick={() => setSelectedRegistry({
                               id: court.id,
                               name: court.name,
@@ -1148,19 +1153,19 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                               court_type: court.court_type,
                               courts: [court]
                             })}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#F59E0B] text-white rounded-lg hover:bg-[#d6890a] transition-colors w-full"
-                          >
-                            <span className="text-sm font-medium">Cause Lists</span>
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-                        </div>
+                          className="flex items-center gap-2 px-4 py-2 bg-[#F59E0B] text-white rounded-lg hover:bg-[#d6890a] transition-colors w-full"
+                        >
+                          <span className="text-sm font-medium">Cause Lists</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
                       </div>
-                    ))}
+                    </div>
+                  ))}
                   </div>
 
                   {courtsTotalPages > 1 && (
                     <div className="flex items-center justify-between mt-4">
-                      <button
+                  <button
                         onClick={() => setCourtsPage((prev) => Math.max(prev - 1, 1))}
                         disabled={courtsPage === 1}
                         className={`px-4 py-2 text-sm font-medium rounded-lg border ${
@@ -1174,7 +1179,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                       <span className="text-sm text-[#525866]">
                         Page <span className="font-semibold">{courtsPage}</span> of{' '}
                         <span className="font-semibold">{courtsTotalPages}</span>
-                      </span>
+                    </span>
                       <button
                         onClick={() => setCourtsPage((prev) => Math.min(prev + 1, courtsTotalPages))}
                         disabled={courtsPage >= courtsTotalPages}
@@ -1185,8 +1190,8 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                         }`}
                       >
                         Next
-                      </button>
-                    </div>
+                  </button>
+                </div>
                   )}
                 </>
               )}
