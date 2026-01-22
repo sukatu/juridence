@@ -11,6 +11,9 @@ const JudgesListView = ({ registry, onBack }) => {
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
+  const [selectedRegion, setSelectedRegion] = useState(
+    registry?.region ? registry.region : 'All Regions'
+  );
   const [showAddJudgeForm, setShowAddJudgeForm] = useState(false);
   const [showJudgeDrawer, setShowJudgeDrawer] = useState(false);
   const [showCauseListPage, setShowCauseListPage] = useState(false);
@@ -22,7 +25,41 @@ const JudgesListView = ({ registry, onBack }) => {
   const [editingJudge, setEditingJudge] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [judgeToDelete, setJudgeToDelete] = useState(null);
+  const [totalJudges, setTotalJudges] = useState(0);
   const filterDropdownRef = useRef(null);
+
+  const REGION_OPTIONS = [
+    'All Regions',
+    'Ahafo Region',
+    'Ashanti Region',
+    'Bono Region',
+    'Bono East Region',
+    'Central Region',
+    'Eastern Region',
+    'Greater Accra Region',
+    'Northern Region',
+    'North-East Region',
+    'Oti Region',
+    'Savannah Region',
+    'Upper-East Region',
+    'Upper-West Region',
+    'Volta Region',
+    'Western Region',
+    'Western North Region'
+  ];
+
+  const buildJudgesParams = (courtType, division, region) => {
+    const params = new URLSearchParams();
+    params.append('court_type', courtType);
+    params.append('limit', '100');
+    if (division) {
+      params.append('court_division', division);
+    }
+    if (region && region !== 'All Regions') {
+      params.append('region', region);
+    }
+    return params;
+  };
 
   // Sample judges data (fallback)
   const [sampleJudges] = useState([
@@ -186,17 +223,15 @@ const JudgesListView = ({ registry, onBack }) => {
         const courtType = registry.court_type || registry.name?.split('(')[0]?.trim() || 'High Court';
         const division = registry.division || registry.court_division || '';
         
-        let response;
-        if (division) {
-          response = await apiGet(`/admin/judges?court_type=${encodeURIComponent(courtType)}&court_division=${encodeURIComponent(division)}&limit=100`);
-        } else {
-          response = await apiGet(`/admin/judges?court_type=${encodeURIComponent(courtType)}&limit=100`);
-        }
+        const params = buildJudgesParams(courtType, division, selectedRegion);
+        const response = await apiGet(`/admin/judges?${params.toString()}`);
         
         if (response && response.judges && Array.isArray(response.judges)) {
           setJudges(response.judges);
+          setTotalJudges(response.total ?? response.judges.length);
         } else {
           setJudges([]);
+          setTotalJudges(0);
         }
       } catch (err) {
         console.error('Error fetching judges:', err);
@@ -207,7 +242,7 @@ const JudgesListView = ({ registry, onBack }) => {
     };
 
     fetchJudges();
-  }, [registry]);
+  }, [registry, selectedRegion]);
 
   // Filter judges based on search query
   const searchFilteredJudges = judges.filter(judge => {
@@ -288,15 +323,12 @@ const JudgesListView = ({ registry, onBack }) => {
       const courtType = registry?.court_type || registry?.name?.split('(')[0]?.trim() || 'High Court';
       const division = registry?.division || registry?.court_division || '';
       
-      let response;
-      if (division) {
-        response = await apiGet(`/admin/judges?court_type=${encodeURIComponent(courtType)}&court_division=${encodeURIComponent(division)}&limit=100`);
-      } else {
-        response = await apiGet(`/admin/judges?court_type=${encodeURIComponent(courtType)}&limit=100`);
-      }
+      const params = buildJudgesParams(courtType, division, selectedRegion);
+      const response = await apiGet(`/admin/judges?${params.toString()}`);
       
       if (response && response.judges) {
         setJudges(response.judges);
+        setTotalJudges(response.total ?? response.judges.length);
       }
 
       setShowAddJudgeForm(false);
@@ -343,15 +375,12 @@ const JudgesListView = ({ registry, onBack }) => {
       const courtType = registry?.court_type || registry?.name?.split('(')[0]?.trim() || 'High Court';
       const division = registry?.division || registry?.court_division || '';
       
-      let response;
-      if (division) {
-        response = await apiGet(`/admin/judges?court_type=${encodeURIComponent(courtType)}&court_division=${encodeURIComponent(division)}&limit=100`);
-      } else {
-        response = await apiGet(`/admin/judges?court_type=${encodeURIComponent(courtType)}&limit=100`);
-      }
+      const params = buildJudgesParams(courtType, division, selectedRegion);
+      const response = await apiGet(`/admin/judges?${params.toString()}`);
       
       if (response && response.judges) {
         setJudges(response.judges);
+        setTotalJudges(response.total ?? response.judges.length);
       }
 
       setShowDeleteConfirm(false);
@@ -447,6 +476,12 @@ const JudgesListView = ({ registry, onBack }) => {
   }
 
   // If add judge form is shown
+  const courtLabel = (() => {
+    const base = registry?.court_type || registry?.name || 'Court';
+    const division = registry?.division || registry?.court_division;
+    return division ? `${base} (${division})` : base;
+  })();
+
   if (showAddJudgeForm) {
     return (
       <AddJudgeForm
@@ -480,7 +515,7 @@ const JudgesListView = ({ registry, onBack }) => {
       <div className="w-full bg-white py-3.5 px-6 mb-4 border-b border-[#D4E1EA]">
         <div className="flex justify-between items-center">
           <div className="flex flex-col items-start gap-1">
-            <span className="text-[#050F1C] text-xl font-medium">High Court (Commercial),</span>
+            <span className="text-[#050F1C] text-xl font-medium">{courtLabel}</span>
             <span className="text-[#050F1C] text-base opacity-75">Track all your activities here.</span>
           </div>
           <div className="flex items-start gap-4">
@@ -556,6 +591,22 @@ const JudgesListView = ({ registry, onBack }) => {
       {/* Main Content */}
       <div className="px-6 w-full">
         <div className="flex flex-col bg-white p-4 gap-6 rounded-lg w-full">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[#525866]">Region:</span>
+              <select
+                value={selectedRegion}
+                onChange={(e) => setSelectedRegion(e.target.value)}
+                className="px-3 py-2 text-sm border border-[#D4E1EA] rounded-lg bg-white text-[#040E1B]"
+              >
+                {REGION_OPTIONS.map((region) => (
+                  <option key={region} value={region}>
+                    {region.replace(' Region', '')}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
           {/* Breadcrumb */}
           <div className="flex items-center gap-1">
             <button
@@ -609,7 +660,7 @@ const JudgesListView = ({ registry, onBack }) => {
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[#868C98] text-xs font-normal">Total number of Judges</span>
-                <span className="text-[#F59E0B] text-base font-medium">{judges.length}</span>
+                <span className="text-[#F59E0B] text-base font-medium">{totalJudges}</span>
               </div>
             </div>
 
