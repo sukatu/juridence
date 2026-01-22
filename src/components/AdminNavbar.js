@@ -23,6 +23,11 @@ import {
 const AdminNavbar = ({ activeTab, setActiveTab, onLogout, isSidebarCollapsed }) => {
   
   const handleNavigation = (tabId) => {
+    if (tabId === activeTab) {
+      setActiveTab('');
+      setTimeout(() => setActiveTab(tabId), 0);
+      return;
+    }
     setActiveTab(tabId);
   };
 
