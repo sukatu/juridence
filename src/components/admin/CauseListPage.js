@@ -46,6 +46,10 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
   const [mapLoading, setMapLoading] = useState(false);
   const [mapError, setMapError] = useState('');
   const [mapCourtType, setMapCourtType] = useState('All Courts');
+  const [towns, setTowns] = useState([]);
+  const [selectedTown, setSelectedTown] = useState('All Towns');
+  const [regionCounts, setRegionCounts] = useState({});
+  const [regionsLoading, setRegionsLoading] = useState(false);
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
@@ -103,6 +107,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
 
   const handleRegionSelect = (regionValue) => {
     setSelectedRegion(regionValue);
+    setSelectedTown('All Towns');
     setCourtsPage(1);
   };
   const loadGoogleMapsScript = (apiKey) => {
@@ -217,23 +222,55 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
 
   const REGION_OPTIONS = [
     { label: 'All Regions', value: 'All Regions' },
-    { label: 'Ahafo (Goaso)', value: 'Ahafo Region' },
-    { label: 'Ashanti (Kumasi)', value: 'Ashanti Region' },
-    { label: 'Bono (Sunyani)', value: 'Bono Region' },
-    { label: 'Bono East (Techiman)', value: 'Bono East Region' },
-    { label: 'Central (Cape Coast)', value: 'Central Region' },
-    { label: 'Eastern (Koforidua)', value: 'Eastern Region' },
-    { label: 'Greater Accra (Accra)', value: 'Greater Accra Region' },
-    { label: 'Northern (Tamale)', value: 'Northern Region' },
-    { label: 'North East (Nalerigu)', value: 'North-East Region' },
-    { label: 'Oti (Dambai)', value: 'Oti Region' },
-    { label: 'Savannah (Damongo)', value: 'Savannah Region' },
-    { label: 'Upper East (Bolgatanga)', value: 'Upper-East Region' },
-    { label: 'Upper West (Wa)', value: 'Upper-West Region' },
-    { label: 'Volta (Ho)', value: 'Volta Region' },
-    { label: 'Western (Sekondi-Takoradi)', value: 'Western Region' },
-    { label: 'Western North (Sefwi Wiawso)', value: 'Western North Region' }
+    { label: 'Ahafo', value: 'Ahafo Region' },
+    { label: 'Ashanti', value: 'Ashanti Region' },
+    { label: 'Bono', value: 'Bono Region' },
+    { label: 'Bono East', value: 'Bono East Region' },
+    { label: 'Central', value: 'Central Region' },
+    { label: 'Eastern', value: 'Eastern Region' },
+    { label: 'Greater Accra', value: 'Greater Accra Region' },
+    { label: 'Northern', value: 'Northern Region' },
+    { label: 'North East', value: 'North-East Region' },
+    { label: 'Oti', value: 'Oti Region' },
+    { label: 'Savannah', value: 'Savannah Region' },
+    { label: 'Upper East', value: 'Upper-East Region' },
+    { label: 'Upper West', value: 'Upper-West Region' },
+    { label: 'Volta', value: 'Volta Region' },
+    { label: 'Western', value: 'Western Region' },
+    { label: 'Western North', value: 'Western North Region' }
   ];
+
+  useEffect(() => {
+    const fetchRegionCounts = async () => {
+      try {
+        setRegionsLoading(true);
+        const requests = REGION_OPTIONS.filter(region => region.value !== 'All Regions').map(async (region) => {
+          const params = new URLSearchParams();
+          params.append('region', region.value);
+          params.append('limit', '1');
+          if (selectedCourt) {
+            params.append('court_type', selectedCourt);
+          }
+          const response = await apiGet(`/courts/search?${params.toString()}`);
+          return { region: region.value, total: response?.total || 0 };
+        });
+
+        const results = await Promise.all(requests);
+        const counts = results.reduce((acc, item) => {
+          acc[item.region] = item.total;
+          return acc;
+        }, {});
+        setRegionCounts(counts);
+      } catch (err) {
+        console.error('Error fetching region counts:', err);
+        setRegionCounts({});
+      } finally {
+        setRegionsLoading(false);
+      }
+    };
+
+    fetchRegionCounts();
+  }, [selectedCourt]);
 
   useEffect(() => {
     const fetchCourts = async () => {
@@ -245,6 +282,9 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
         }
         if (selectedRegion && selectedRegion !== 'All Regions') {
           params.append('region', selectedRegion);
+        }
+        if (selectedTown && selectedTown !== 'All Towns') {
+          params.append('city', selectedTown);
         }
         if (selectedCourt) {
           params.append('court_type', selectedCourt);
@@ -274,6 +314,28 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
 
     fetchCourts();
   }, [selectedCourt, selectedRegion, courtsSearchQuery, courtsPage, courtsRefreshKey]);
+
+  useEffect(() => {
+    const fetchTowns = async () => {
+      try {
+        if (!selectedRegion || selectedRegion === 'All Regions') {
+          setTowns([]);
+          return;
+        }
+        const response = await apiGet(`/courts/cities?region=${encodeURIComponent(selectedRegion)}`);
+        if (Array.isArray(response)) {
+          setTowns(response.filter(Boolean).sort((a, b) => a.localeCompare(b)));
+        } else {
+          setTowns([]);
+        }
+      } catch (err) {
+        console.error('Error fetching towns:', err);
+        setTowns([]);
+      }
+    };
+
+    fetchTowns();
+  }, [selectedRegion]);
 
   useEffect(() => {
     const fetchMapApiKey = async () => {
@@ -330,6 +392,9 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
         if (selectedRegion && selectedRegion !== 'All Regions') {
           params.append('region', selectedRegion);
         }
+        if (selectedTown && selectedTown !== 'All Towns') {
+          params.append('city', selectedTown);
+        }
         if (mapCourtType && mapCourtType !== 'All Courts') {
           params.append('court_type', mapCourtType);
         }
@@ -352,7 +417,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     };
 
     fetchMapCourts();
-  }, [viewMode, selectedRegion, courtsSearchQuery, mapCourtType]);
+  }, [viewMode, selectedRegion, selectedTown, courtsSearchQuery, mapCourtType]);
 
   useEffect(() => {
     if (viewMode !== 'map' || !mapInstanceRef.current || !window.google?.maps) {
@@ -577,34 +642,17 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
               </div>
             </div>
 
-            {/* Court Cards */}
-            <div className="flex items-start self-stretch gap-6">
+            {/* Court Type Buttons */}
+            <div className="flex flex-wrap items-center gap-3">
               {courts.map((court, index) => (
-                <div
+                <button
                   key={index}
                   onClick={() => handleCourtClick(court.name)}
-                  className="flex flex-col items-start bg-white flex-1 py-[23px] pl-4 gap-3 rounded-lg border border-solid border-[#D4E1EA] cursor-pointer hover:shadow-lg transition-shadow"
-                  style={{ boxShadow: '4px 4px 4px #0708101A' }}
+                  className="flex items-center gap-2 px-5 py-3 rounded-lg border border-[#D4E1EA] bg-white text-[#040E1B] text-sm font-medium hover:bg-[#F7F8FA] transition-colors"
                 >
-                  <div className="w-20 h-20 flex items-center justify-center rounded-lg overflow-hidden bg-gray-50">
-                    <img
-                      key={court.name}
-                      src={court.image}
-                      alt={court.name}
-                      className="w-full h-full object-contain"
-                      onError={(e) => {
-                        console.error(`Failed to load image for ${court.name}:`, court.image);
-                        e.target.src = '/courts/image.png';
-                      }}
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[#F59E0B] text-base font-normal whitespace-nowrap">
-                      {court.name}
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-[#F59E0B] flex-shrink-0" />
-                  </div>
-                </div>
+                  <span>{court.name}</span>
+                  <ChevronRight className="w-4 h-4 text-[#F59E0B]" />
+                </button>
               ))}
             </div>
 
@@ -638,36 +686,68 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
 
               <div className="flex flex-col gap-3">
                 <span className="text-[#040E1B] text-lg font-semibold">Filter by Region</span>
-                <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 max-w-full">
                   {REGION_OPTIONS.map((region) => (
+                    (() => {
+                      const isAll = region.value === 'All Regions';
+                      const total = regionCounts[region.value];
+                      const disabled = !isAll && total === 0;
+                      return (
                     <button
                       key={region.value}
                       onClick={() => handleRegionSelect(region.value)}
+                      disabled={disabled}
                       className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors ${
                         selectedRegion === region.value
                           ? 'bg-[#022658] text-white border-[#022658]'
-                          : 'bg-white text-[#525866] border-[#D4E1EA] hover:bg-[#F7F8FA]'
+                          : disabled
+                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                            : 'bg-white text-[#525866] border-[#D4E1EA] hover:bg-[#F7F8FA]'
                       }`}
                     >
                       {region.label}
                     </button>
+                      );
+                    })()
                   ))}
                 </div>
               </div>
 
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md">
-                  <Search className="w-4 h-4 text-[#868C98] mr-2" />
-                  <input
-                    type="text"
-                    value={courtsSearchQuery}
+                <div className="flex flex-col md:flex-row md:items-center gap-3 w-full">
+                  <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md">
+                    <Search className="w-4 h-4 text-[#868C98] mr-2" />
+                    <input
+                      type="text"
+                      value={courtsSearchQuery}
+                      onChange={(e) => {
+                        setCourtsSearchQuery(e.target.value);
+                        setCourtsPage(1);
+                      }}
+                      placeholder="Search courts by name, location, or area..."
+                      className="flex-1 bg-transparent text-sm text-[#040E1B] outline-none"
+                    />
+                  </div>
+                  <select
+                    value={selectedTown}
                     onChange={(e) => {
-                      setCourtsSearchQuery(e.target.value);
+                      setSelectedTown(e.target.value);
                       setCourtsPage(1);
                     }}
-                    placeholder="Search courts by name, location, or area..."
-                    className="flex-1 bg-transparent text-sm text-[#040E1B] outline-none"
-                  />
+                    disabled={selectedRegion === 'All Regions'}
+                    className={`px-3 py-2 text-sm border rounded-lg bg-white text-[#040E1B] w-full md:w-64 ${
+                      selectedRegion === 'All Regions'
+                        ? 'border-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'border-[#D4E1EA]'
+                    }`}
+                  >
+                    <option value="All Towns">All Towns</option>
+                    {towns.map((town) => (
+                      <option key={town} value={town}>
+                        {town}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <span className="text-[#525866] text-sm whitespace-nowrap">
                   {courtsTotal} court{courtsTotal === 1 ? '' : 's'}
@@ -693,6 +773,26 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                         {['All Courts', 'Supreme Court', 'Court of Appeal', 'High Court', 'Circuit Court', 'District Court'].map((type) => (
                           <option key={type} value={type}>
                             {type}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-[#525866]">Town:</span>
+                      <select
+                        value={selectedTown}
+                        onChange={(e) => setSelectedTown(e.target.value)}
+                        disabled={selectedRegion === 'All Regions'}
+                        className={`px-3 py-2 text-sm border rounded-lg bg-white text-[#040E1B] ${
+                          selectedRegion === 'All Regions'
+                            ? 'border-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'border-[#D4E1EA]'
+                        }`}
+                      >
+                        <option value="All Towns">All Towns</option>
+                        {towns.map((town) => (
+                          <option key={town} value={town}>
+                            {town}
                           </option>
                         ))}
                       </select>
@@ -889,36 +989,68 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
                   <span className="text-[#040E1B] text-base font-semibold">Filter by Region</span>
-                  <div className="flex flex-wrap items-center gap-2 pb-2 max-w-full">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 max-w-full">
                     {REGION_OPTIONS.map((region) => (
+                    (() => {
+                      const isAll = region.value === 'All Regions';
+                      const total = regionCounts[region.value];
+                      const disabled = !isAll && total === 0;
+                      return (
                       <button
                         key={region.value}
                         onClick={() => handleRegionSelect(region.value)}
-                        className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors ${
+                      disabled={disabled}
+                      className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors ${
                           selectedRegion === region.value
-                            ? 'bg-[#022658] text-white border-[#022658]'
+                          ? 'bg-[#022658] text-white border-[#022658]'
+                          : disabled
+                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                             : 'bg-white text-[#525866] border-[#D4E1EA] hover:bg-[#F7F8FA]'
-                        }`}
+                      }`}
                       >
                         {region.label}
                       </button>
+                      );
+                    })()
                     ))}
                   </div>
                 </div>
 
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md min-w-0">
-                    <Search className="w-4 h-4 text-[#868C98] mr-2" />
-                    <input
-                      type="text"
-                      value={courtsSearchQuery}
+                  <div className="flex flex-col md:flex-row md:items-center gap-3 w-full">
+                    <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md min-w-0">
+                      <Search className="w-4 h-4 text-[#868C98] mr-2" />
+                      <input
+                        type="text"
+                        value={courtsSearchQuery}
+                        onChange={(e) => {
+                          setCourtsSearchQuery(e.target.value);
+                          setCourtsPage(1);
+                        }}
+                        placeholder={`Search ${selectedCourt} courts...`}
+                        className="flex-1 bg-transparent text-sm text-[#040E1B] outline-none"
+                      />
+                    </div>
+                    <select
+                      value={selectedTown}
                       onChange={(e) => {
-                        setCourtsSearchQuery(e.target.value);
+                        setSelectedTown(e.target.value);
                         setCourtsPage(1);
                       }}
-                      placeholder={`Search ${selectedCourt} courts...`}
-                      className="flex-1 bg-transparent text-sm text-[#040E1B] outline-none"
-                    />
+                      disabled={selectedRegion === 'All Regions'}
+                      className={`px-3 py-2 text-sm border rounded-lg bg-white text-[#040E1B] w-full md:w-64 ${
+                        selectedRegion === 'All Regions'
+                          ? 'border-slate-200 text-slate-400 cursor-not-allowed'
+                          : 'border-[#D4E1EA]'
+                      }`}
+                    >
+                      <option value="All Towns">All Towns</option>
+                      {towns.map((town) => (
+                        <option key={town} value={town}>
+                          {town}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
