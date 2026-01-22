@@ -616,12 +616,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     return (
       <div className="bg-[#F7F8FA] min-h-screen">
         {/* Full Width Header */}
-        <AdminHeader
-          userInfo={userInfo}
-          onNavigate={onNavigate}
-          onLogout={onLogout}
-          contextLabel={selectedCourt}
-        />
+        <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
 
         {/* Main Content */}
         <div className="px-6">
@@ -971,7 +966,12 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     return (
       <div className="bg-[#F7F8FA] min-h-screen overflow-x-hidden">
         {/* Full Width Header */}
-        <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
+        <AdminHeader
+          userInfo={userInfo}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+          contextLabel={selectedCourt}
+        />
 
         {/* Main Content */}
         <div className="px-6 max-w-full">
