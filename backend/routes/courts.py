@@ -32,15 +32,17 @@ def extract_town_name(value: Optional[str]) -> Optional[str]:
     cleaned = value.replace("–", "-").replace("—", "-").strip()
     if "," in cleaned:
         cleaned = cleaned.split(",", 1)[1].strip()
+    # Remove any parenthetical notes
+    cleaned = re.sub(r"\([^)]*\)", "", cleaned).strip()
+    # Split before common court type descriptors
+    cleaned = re.split(
+        r"\s+(High|Circuit|District|Commercial|Family|Land|Probate|Criminal|General|Human Rights|Labour|Financial|Economic|Gender Based Violence|GBVC)\b",
+        cleaned,
+        maxsplit=1,
+        flags=re.IGNORECASE
+    )[0].strip()
     if " Court" in cleaned:
         cleaned = re.split(r"\s+Court\b", cleaned, maxsplit=1, flags=re.IGNORECASE)[0].strip()
-    # Remove trailing court-type qualifiers
-    cleaned = re.sub(
-        r"\b(High|Circuit|District|Commercial|Family|Land|Probate|Criminal|General|Human|Rights|Labour|Financial|Economic|Gender|Based|Violence|GBVC)\b$",
-        "",
-        cleaned,
-        flags=re.IGNORECASE
-    ).strip(" -")
     cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
     return cleaned or None
 
