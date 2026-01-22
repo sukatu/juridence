@@ -12,6 +12,60 @@ from models.user import User
 
 router = APIRouter()
 
+
+@router.get("/judges", response_model=JudgeListResponse)
+async def get_judges_public(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search term for name, title, or court type"),
+    status: Optional[JudgeStatus] = Query(None, description="Filter by status"),
+    court_type: Optional[str] = Query(None, description="Filter by court type"),
+    region: Optional[str] = Query(None, description="Filter by region"),
+    db: Session = Depends(get_db)
+):
+    """Public judge list with filtering and pagination"""
+    # Build query
+    query = db.query(Judges)
+
+    # Apply filters
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                Judges.name.ilike(search_term),
+                Judges.title.ilike(search_term),
+                Judges.court_type.ilike(search_term),
+                Judges.court_division.ilike(search_term)
+            )
+        )
+
+    if status:
+        query = query.filter(Judges.status == status)
+
+    if court_type:
+        query = query.filter(Judges.court_type.ilike(f"%{court_type}%"))
+
+    if region:
+        query = query.filter(Judges.region.ilike(f"%{region}%"))
+
+    # Get total count
+    total = query.count()
+
+    # Apply pagination
+    offset = (page - 1) * limit
+    judges = query.offset(offset).limit(limit).all()
+
+    # Calculate total pages
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+
+    return JudgeListResponse(
+        judges=judges,
+        total=total,
+        page=page,
+        limit=limit,
+        total_pages=total_pages
+    )
+
 @router.get("/admin/judges", response_model=JudgeListResponse)
 async def get_judges(
     page: int = Query(1, ge=1, description="Page number"),

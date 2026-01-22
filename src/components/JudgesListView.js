@@ -224,7 +224,7 @@ const JudgesListView = ({ registry, onBack }) => {
         const division = registry.division || registry.court_division || '';
         
         const params = buildJudgesParams(courtType, division, selectedRegion);
-        const response = await apiGet(`/admin/judges?${params.toString()}`);
+        const response = await apiGet(`/judges?${params.toString()}`);
         
         if (response && response.judges && Array.isArray(response.judges)) {
           setJudges(response.judges);
@@ -324,7 +324,7 @@ const JudgesListView = ({ registry, onBack }) => {
       const division = registry?.division || registry?.court_division || '';
       
       const params = buildJudgesParams(courtType, division, selectedRegion);
-      const response = await apiGet(`/admin/judges?${params.toString()}`);
+      const response = await apiGet(`/judges?${params.toString()}`);
       
       if (response && response.judges) {
         setJudges(response.judges);
@@ -376,7 +376,7 @@ const JudgesListView = ({ registry, onBack }) => {
       const division = registry?.division || registry?.court_division || '';
       
       const params = buildJudgesParams(courtType, division, selectedRegion);
-      const response = await apiGet(`/admin/judges?${params.toString()}`);
+      const response = await apiGet(`/judges?${params.toString()}`);
       
       if (response && response.judges) {
         setJudges(response.judges);
