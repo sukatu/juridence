@@ -438,7 +438,7 @@ def upsert_cases(conn, cases: list[dict], court_type: str) -> tuple[int, int]:
             existing = conn.execute(
                 text(
                     "SELECT id FROM cause_lists "
-                    "WHERE suit_no = :suit_no AND hearing_date = :hearing_date "
+                    "WHERE suit_no = :suit_no AND hearing_date::date = :hearing_date "
                     "LIMIT 1"
                 ),
                 {"suit_no": suit_no, "hearing_date": hearing_date},
