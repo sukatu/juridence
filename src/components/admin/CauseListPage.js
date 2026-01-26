@@ -59,6 +59,8 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
   const [supremeNewsLoading, setSupremeNewsLoading] = useState(false);
   const [selectedNewsUrl, setSelectedNewsUrl] = useState('');
   const [showNewsModal, setShowNewsModal] = useState(false);
+  const [supremeSelectedCase, setSupremeSelectedCase] = useState(null);
+  const [supremeActiveTab, setSupremeActiveTab] = useState('details');
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
@@ -1298,7 +1300,123 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                 </div>
               </div>
 
-              {supremeLoading ? (
+              {supremeSelectedCase ? (
+                <div className="px-6 py-6">
+                  <button
+                    onClick={() => setSupremeSelectedCase(null)}
+                    className="text-sm text-[#022658] font-semibold hover:opacity-80"
+                  >
+                    ← Back to list
+                  </button>
+                  <div className="mt-4">
+                    <div className="flex flex-col gap-1">
+                      <div className="text-lg font-semibold text-[#040E1B]">
+                        {supremeSelectedCase.case_title || 'Case Details'}
+                      </div>
+                      <div className="text-xs text-[#6B7280]">
+                        {supremeSelectedCase.suit_no || 'Suit number unavailable'}
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-center gap-2">
+                      {[
+                        { key: 'details', label: 'Case Details' },
+                        { key: 'parties', label: 'Parties' },
+                        { key: 'coram', label: 'Coram' },
+                        { key: 'diary', label: 'Diary' }
+                      ].map((tab) => (
+                        <button
+                          key={tab.key}
+                          onClick={() => setSupremeActiveTab(tab.key)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                            supremeActiveTab === tab.key
+                              ? 'bg-[#022658] text-white border-[#022658]'
+                              : 'text-[#040E1B] border-[#E5E8EC] hover:bg-[#F7F8FA]'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-6">
+                      {supremeActiveTab === 'details' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                          <div className="p-4 rounded-lg border border-[#E5E8EC]">
+                            <div className="text-xs text-[#6B7280]">Category</div>
+                            <div className="font-semibold text-[#040E1B]">
+                              {getCategoryMeta(supremeSelectedCase.suit_no).label}
+                            </div>
+                          </div>
+                          <div className="p-4 rounded-lg border border-[#E5E8EC]">
+                            <div className="text-xs text-[#6B7280]">Hearing Date</div>
+                            <div className="font-semibold text-[#040E1B]">
+                              {supremeSelectedCase.hearing_date || 'Date TBD'}
+                            </div>
+                          </div>
+                          <div className="p-4 rounded-lg border border-[#E5E8EC]">
+                            <div className="text-xs text-[#6B7280]">Time</div>
+                            <div className="font-semibold text-[#040E1B]">
+                              {supremeSelectedCase.hearing_time || 'Time TBD'}
+                            </div>
+                          </div>
+                          <div className="p-4 rounded-lg border border-[#E5E8EC]">
+                            <div className="text-xs text-[#6B7280]">Venue</div>
+                            <div className="font-semibold text-[#040E1B]">
+                              {supremeSelectedCase.venue || 'Venue TBD'}
+                            </div>
+                          </div>
+                          <div className="p-4 rounded-lg border border-[#E5E8EC] md:col-span-2">
+                            <div className="text-xs text-[#6B7280]">Remarks</div>
+                            <div className="font-semibold text-[#040E1B]">
+                              {supremeSelectedCase.remarks || '—'}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {supremeActiveTab === 'parties' && (() => {
+                        const parties = getParties(supremeSelectedCase);
+                        return (
+                          <div className="space-y-3">
+                            {[
+                              { label: 'Applicant', value: parties.home },
+                              { label: 'Respondent', value: parties.away || '—' }
+                            ].map((party) => (
+                              <div key={party.label} className="p-4 rounded-lg border border-[#E5E8EC]">
+                                <div className="text-xs text-[#6B7280]">{party.label}</div>
+                                <div className="text-sm font-semibold text-[#040E1B]">{party.value}</div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                      {supremeActiveTab === 'coram' && (
+                        <div className="p-4 rounded-lg border border-[#E5E8EC] text-sm text-[#6B7280]">
+                          Coram details are not available for this case yet.
+                        </div>
+                      )}
+                      {supremeActiveTab === 'diary' && (
+                        <div className="p-4 rounded-lg border border-[#E5E8EC]">
+                          <div className="text-xs text-[#6B7280]">Next Sitting</div>
+                          <div className="mt-1 text-sm font-semibold text-[#040E1B]">
+                            {supremeSelectedCase.hearing_date || 'Date TBD'}
+                          </div>
+                          <div className="text-xs text-[#6B7280] mt-2">Time</div>
+                          <div className="text-sm font-semibold text-[#040E1B]">
+                            {supremeSelectedCase.hearing_time || 'Time TBD'}
+                          </div>
+                          {supremeSelectedCase.venue && (
+                            <>
+                              <div className="text-xs text-[#6B7280] mt-2">Venue</div>
+                              <div className="text-sm font-semibold text-[#040E1B]">
+                                {supremeSelectedCase.venue}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : supremeLoading ? (
                 <div className="px-6 py-6 text-sm text-[#6B7280]">Loading cause list...</div>
               ) : supremeError ? (
                 <div className="px-6 py-6 text-sm text-red-600">{supremeError}</div>
@@ -1321,7 +1439,15 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                     const parties = getParties(item);
                     const categoryMeta = getCategoryMeta(item.suit_no);
                     return (
-                      <div key={`${item.id}-${item.suit_no}`} className="px-6 py-6 pt-10 relative">
+                      <button
+                        type="button"
+                        key={`${item.id}-${item.suit_no}`}
+                        className="w-full text-left px-6 py-6 pt-10 relative hover:bg-[#F7F8FA] transition-colors"
+                        onClick={() => {
+                          setSupremeSelectedCase(item);
+                          setSupremeActiveTab('details');
+                        }}
+                      >
                         <div
                           className={`absolute right-6 top-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${categoryMeta.bg} ${categoryMeta.text} ${categoryMeta.border}`}
                         >
@@ -1363,7 +1489,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                             {item.venue && <span>{item.venue}</span>}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
