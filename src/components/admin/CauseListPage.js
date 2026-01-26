@@ -186,6 +186,10 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     return supremeCasesForDay.filter((item) => getSuitPrefix(item.suit_no) === key);
   }, [supremeCasesForDay, supremeCategory]);
 
+  useEffect(() => {
+    setSupremeSelectedCase(null);
+  }, [supremeDate, supremeCategory]);
+
   const getDateLabel = (dateString) => {
     if (!dateString) {
       return 'All Dates';
@@ -1319,10 +1323,11 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                     </div>
                     <div className="mt-4 flex items-center gap-2">
                       {[
-                        { key: 'details', label: 'Case Details' },
+                        { key: 'details', label: 'Info' },
                         { key: 'parties', label: 'Parties' },
                         { key: 'coram', label: 'Coram' },
-                        { key: 'diary', label: 'Diary' }
+                        { key: 'diary', label: 'History' },
+                        { key: 'documents', label: 'Documents' }
                       ].map((tab) => (
                         <button
                           key={tab.key}
@@ -1413,6 +1418,11 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                           )}
                         </div>
                       )}
+                      {supremeActiveTab === 'documents' && (
+                        <div className="p-4 rounded-lg border border-[#E5E8EC] text-sm text-[#6B7280]">
+                          Documents are not available for this case yet.
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1442,7 +1452,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                       <button
                         type="button"
                         key={`${item.id}-${item.suit_no}`}
-                        className="w-full text-left px-6 py-6 pt-10 relative hover:bg-[#F7F8FA] transition-colors"
+                        className="w-full text-left px-6 py-6 pt-10 relative hover:bg-[#F7F8FA] transition-colors cursor-pointer"
                         onClick={() => {
                           setSupremeSelectedCase(item);
                           setSupremeActiveTab('details');
@@ -2175,7 +2185,11 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                   </div>
 
                   {weekCases.map((caseItem, idx) => (
-                    <div key={idx} className="flex items-center w-full py-3 px-4 gap-3">
+                    <div
+                      key={idx}
+                      className="flex items-center w-full py-3 px-4 gap-3 cursor-pointer hover:bg-[#F7F8FA] transition-colors"
+                      onClick={() => handleEventClick(caseItem)}
+                    >
                       <div className="flex flex-col items-start w-[20%] py-[7px]">
                         <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{caseItem.title}</span>
                       </div>
@@ -2198,7 +2212,14 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                         <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{caseItem.hearingTime}</span>
                       </div>
                       <div className="w-[5%] flex-shrink-0 flex items-center justify-center py-[7px]">
-                        <img src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/ybor38kf_expires_30_days.png" className="w-4 h-4 object-fill cursor-pointer hover:opacity-70" />
+                        <img
+                          src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/ybor38kf_expires_30_days.png"
+                          className="w-4 h-4 object-fill cursor-pointer hover:opacity-70"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleEventClick(caseItem);
+                          }}
+                        />
                       </div>
                     </div>
                   ))}
