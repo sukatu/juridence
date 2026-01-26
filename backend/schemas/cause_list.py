@@ -24,6 +24,9 @@ class CauseListBase(BaseModel):
     status: Optional[str] = Field("Active", max_length=50)
     registry_id: Optional[int] = None
     court_id: Optional[int] = None
+    court_type: Optional[str] = Field(None, max_length=100)
+    location: Optional[str] = Field(None, max_length=255)
+    venue: Optional[str] = Field(None, max_length=255)
     case_id: Optional[int] = None
 
 class CauseListCreate(CauseListBase):
@@ -71,6 +74,9 @@ class CauseListUpdate(BaseModel):
     status: Optional[str] = Field(None, max_length=50)
     registry_id: Optional[int] = None
     court_id: Optional[int] = None
+    court_type: Optional[str] = Field(None, max_length=100)
+    location: Optional[str] = Field(None, max_length=255)
+    venue: Optional[str] = Field(None, max_length=255)
     case_id: Optional[int] = None
     is_active: Optional[bool] = None
 

@@ -49,6 +49,9 @@ class CauseList(Base):
     # Registry/Court information
     registry_id = Column(Integer, nullable=True)  # Reference to registry
     court_id = Column(Integer, ForeignKey("courts.id"), nullable=True)
+    court_type = Column(String(100), nullable=True)  # Supreme Court, Appeal Court, etc.
+    location = Column(String(255), nullable=True)
+    venue = Column(String(255), nullable=True)
     
     # Link to reported case if exists
     case_id = Column(Integer, ForeignKey("reported_cases.id"), nullable=True)

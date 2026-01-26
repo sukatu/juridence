@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, ChevronDown, Bell, ChevronRight, Plus } from 'lucide-react';
 import CauseListDrawer from './CauseListDrawer';
 import AddRegistryForm from '../AddRegistryForm';
@@ -8,7 +8,7 @@ import AddCasesToCauseListPage from '../AddCasesToCauseListPage';
 import RegistryCourtsView from '../RegistryCourtsView';
 import JudgesListView from '../JudgesListView';
 import AdminHeader from './AdminHeader';
-import { apiGet, apiPost } from '../../utils/api';
+import { apiGet, apiPost, apiRequest } from '../../utils/api';
 
 const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
   const [selectedCourt, setSelectedCourt] = useState(null);
@@ -50,6 +50,15 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
   const [selectedTown, setSelectedTown] = useState('All Towns');
   const [regionCounts, setRegionCounts] = useState({});
   const [regionsLoading, setRegionsLoading] = useState(false);
+  const [supremeCases, setSupremeCases] = useState([]);
+  const [supremeLoading, setSupremeLoading] = useState(false);
+  const [supremeError, setSupremeError] = useState('');
+  const [supremeCategory, setSupremeCategory] = useState(null);
+  const [supremeDate, setSupremeDate] = useState('');
+  const [supremeNews, setSupremeNews] = useState([]);
+  const [supremeNewsLoading, setSupremeNewsLoading] = useState(false);
+  const [selectedNewsUrl, setSelectedNewsUrl] = useState('');
+  const [showNewsModal, setShowNewsModal] = useState(false);
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
@@ -95,13 +104,191 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
       image: '/courts/district-court.png'
     }
   ];
+  const isSupremeCourt = selectedCourt === 'Supreme Court';
+  const supremeCategories = [
+    { key: 'J1', label: 'Constitutional Cases' },
+    { key: 'J2', label: 'Chieftaincy Appeal Cases' },
+    { key: 'J3', label: 'Criminal Appeal Cases' },
+    { key: 'J4', label: 'Civil Appeal Cases' },
+    { key: 'J5', label: 'Supervisory Jurisdiction Motions' },
+    { key: 'J6', label: 'Reference Jurisdiction Cases' },
+    { key: 'J7', label: 'Review Jurisdiction Motions' },
+    { key: 'J8', label: 'Interlocutory Motions (General)' }
+  ];
+
+  const getSuitPrefix = (suitNo = '') => {
+    const match = suitNo.match(/J([1-9])/i);
+    return match ? `J${match[1]}` : 'Other';
+  };
+
+  const supremeCasesByCategory = useMemo(() => {
+    const groups = supremeCategories.reduce((acc, category) => {
+      acc[category.key] = [];
+      return acc;
+    }, {});
+    supremeCases.forEach((item) => {
+      const key = getSuitPrefix(item.suit_no);
+      if (groups[key]) {
+        groups[key].push(item);
+      }
+    });
+    return groups;
+  }, [supremeCases]);
+
+  const supremeDates = useMemo(() => {
+    const dates = new Set();
+    supremeCases.forEach((item) => {
+      if (item.hearing_date) {
+        dates.add(item.hearing_date);
+      }
+    });
+    return Array.from(dates).sort();
+  }, [supremeCases]);
+
+  const supremeCasesForDay = useMemo(() => {
+    if (!supremeDate) {
+      return supremeCases;
+    }
+    return supremeCases.filter((item) => item.hearing_date === supremeDate);
+  }, [supremeCases, supremeDate]);
+
+  const supremeCasesFiltered = useMemo(() => {
+    if (!supremeCategory) {
+      return supremeCasesForDay;
+    }
+    const key = supremeCategory;
+    return supremeCasesForDay.filter((item) => getSuitPrefix(item.suit_no) === key);
+  }, [supremeCasesForDay, supremeCategory]);
+
+  const getDateLabel = (dateString) => {
+    if (!dateString) {
+      return 'All Dates';
+    }
+    const selected = new Date(`${dateString}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const diff = (selected - today) / (1000 * 60 * 60 * 24);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    if (diff === -1) return 'Yesterday';
+    return selected.toLocaleDateString(undefined, {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const getInitials = (name = '') => {
+    const cleaned = name.replace(/[^A-Za-z\s]/g, '').trim();
+    if (!cleaned) {
+      return '?';
+    }
+    const parts = cleaned.split(/\s+/).slice(0, 2);
+    return parts.map((part) => part[0]).join('').toUpperCase();
+  };
+
+  const getParties = (item) => {
+    const title = item?.case_title || '';
+    const split = title.split(/\s+VRS\s+/i);
+    const titleParties = split.length === 2
+      ? { home: split[0].trim(), away: split[1].trim() }
+      : { home: title, away: '' };
+
+    const home = item?.first_party_name || titleParties.home || '—';
+    const away = item?.second_party_name || titleParties.away || '';
+
+    return { home, away };
+  };
+
+  useEffect(() => {
+    const fetchSupremeCases = async () => {
+      if (!isSupremeCourt) {
+        return;
+      }
+      try {
+        setSupremeLoading(true);
+        setSupremeError('');
+        const { response, data } = await apiRequest('/cause-lists/public?court_type=Supreme%20Court&limit=500&page=1', {
+          method: 'GET',
+          includeAuth: false
+        });
+        if (!response.ok) {
+          throw new Error(data?.detail || `Request failed with status ${response.status}`);
+        }
+        if (data && data.cause_lists) {
+          setSupremeCases(data.cause_lists);
+          if (!supremeDate) {
+            const dates = data.cause_lists
+              .map((item) => item.hearing_date)
+              .filter(Boolean)
+              .sort();
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const todayString = today.toISOString().slice(0, 10);
+            const nextDate = dates.find((d) => d >= todayString);
+            setSupremeDate(nextDate || dates[0] || '');
+          }
+        } else {
+          setSupremeCases([]);
+        }
+      } catch (err) {
+        console.error('Error fetching Supreme Court cause list:', err);
+        setSupremeError('Unable to load Supreme Court cause list.');
+        setSupremeCases([]);
+      } finally {
+        setSupremeLoading(false);
+      }
+    };
+
+    fetchSupremeCases();
+  }, [isSupremeCourt]);
+
+  useEffect(() => {
+    const fetchSupremeNews = async () => {
+      if (!isSupremeCourt) {
+        return;
+      }
+      try {
+        setSupremeNewsLoading(true);
+        const { response, data } = await apiRequest('/cause-lists/public/news/supreme-court', {
+          method: 'GET',
+          includeAuth: false
+        });
+        if (!response.ok) {
+          throw new Error(data?.detail || `Request failed with status ${response.status}`);
+        }
+        if (data && Array.isArray(data.items)) {
+          setSupremeNews(data.items);
+          if (data.items.length) {
+            setSelectedNewsUrl(data.items[0].url);
+          }
+        } else {
+          setSupremeNews([]);
+          setSelectedNewsUrl('');
+        }
+      } catch (err) {
+        console.error('Error fetching Supreme Court news:', err);
+        setSupremeNews([]);
+      } finally {
+        setSupremeNewsLoading(false);
+      }
+    };
+
+    fetchSupremeNews();
+  }, [isSupremeCourt]);
 
   const handleCourtClick = (courtName) => {
     setSelectedCourt(courtName);
     setSelectedRegistry(null);
     setShowAddRegistryForm(false);
     setSelectedRegion('All Regions');
+    setSelectedTown('All Towns');
     setCourtsSearchQuery('');
+    if (courtName === 'Supreme Court') {
+      setTimePeriod('today');
+    }
     setCourtsPage(1);
   };
 
@@ -961,6 +1148,276 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     );
   }
 
+  // If Supreme Court is selected, show categorized page
+  if (isSupremeCourt) {
+    const activeCategory = supremeCategories.find((category) => category.key === supremeCategory);
+    const activeCases = supremeCasesFiltered;
+    const dateIndex = supremeDates.findIndex((d) => d === supremeDate);
+    const hasPrevDate = dateIndex > 0;
+    const hasNextDate = dateIndex >= 0 && dateIndex < supremeDates.length - 1;
+    return (
+      <div className="bg-[#F7F8FA] min-h-screen w-full">
+        <AdminHeader
+          userInfo={userInfo}
+          onNavigate={onNavigate}
+          onLogout={onLogout}
+          contextLabel={selectedCourt}
+        />
+        <div className="px-6 w-full pb-8">
+          <div className="flex flex-col w-full bg-white py-4 rounded-lg border border-[#E5E8EC]">
+            <div className="flex flex-col items-start w-full gap-4 px-6">
+              <div className="flex items-start gap-2">
+                <button
+                  onClick={() => setSelectedCourt(null)}
+                  className="cursor-pointer hover:opacity-70"
+                >
+                  <ChevronRight className="w-4 h-4 text-[#525866] rotate-180" />
+                </button>
+                <span className="text-[#525866] text-xs mr-1.5 whitespace-nowrap">CAUSE LIST</span>
+                <span className="text-[#525866] text-xs mr-1.5 whitespace-nowrap">/</span>
+                <span className="text-[#525866] text-xs whitespace-nowrap">{selectedCourt}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-col lg:flex-row gap-6">
+            <aside className="w-full lg:w-72 bg-white rounded-lg border border-[#E5E8EC]">
+              <div className="px-4 py-3 border-b border-[#E5E8EC]">
+                <span className="text-sm font-semibold text-[#040E1B]">Supreme Court Cause List</span>
+              </div>
+              <div className="flex flex-col gap-1 p-2">
+                <button
+                  onClick={() => setSupremeCategory(null)}
+                  className={`flex flex-col items-start px-3 py-2 rounded-lg transition-colors ${
+                    !supremeCategory
+                      ? 'bg-[#022658] text-white'
+                      : 'text-[#040E1B] hover:bg-[#F7F8FA]'
+                  }`}
+                >
+                  <span className="text-sm font-semibold">All Cases</span>
+                  <span className={`text-xs mt-1 ${!supremeCategory ? 'text-white/70' : 'text-[#9CA3AF]'}`}>
+                    {supremeCasesForDay.length} cases
+                  </span>
+                </button>
+                {supremeCategories.map((category) => (
+                  <button
+                    key={category.key}
+                    onClick={() => setSupremeCategory(category.key)}
+                    className={`flex flex-col items-start px-3 py-2 rounded-lg transition-colors ${
+                      supremeCategory === category.key
+                        ? 'bg-[#022658] text-white'
+                        : 'text-[#040E1B] hover:bg-[#F7F8FA]'
+                    }`}
+                  >
+                    <span className="text-sm font-semibold">{category.label}</span>
+                    <span className={`text-xs mt-1 ${supremeCategory === category.key ? 'text-white/70' : 'text-[#9CA3AF]'}`}>
+                      {supremeCasesByCategory[category.key]?.length || 0} cases
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </aside>
+
+            <main className="flex-1 bg-white rounded-lg border border-[#E5E8EC]">
+              <div className="flex flex-col gap-3 px-6 py-4 border-b border-[#E5E8EC]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-[#040E1B]">
+                      {supremeCategory ? activeCategory?.label : 'All Categories'}
+                    </div>
+                    <div className="text-xs text-[#6B7280]">
+                      {selectedCourt} cause list diary
+                    </div>
+                  </div>
+                  <div className="text-xs text-[#6B7280]">
+                    {activeCases.length} results
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-6">
+                  <button
+                    onClick={() => {
+                      if (hasPrevDate) {
+                        setSupremeDate(supremeDates[dateIndex - 1]);
+                      }
+                    }}
+                    disabled={!hasPrevDate}
+                    className={`w-10 h-10 flex items-center justify-center rounded-full border ${
+                      hasPrevDate ? 'border-[#D4E1EA] text-[#022658] hover:bg-[#F7F8FA]' : 'border-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                    aria-label="Previous day"
+                  >
+                    <ChevronRight className="w-4 h-4 rotate-180" />
+                  </button>
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <div className="text-sm font-semibold text-[#040E1B]">{getDateLabel(supremeDate)}</div>
+                    <input
+                      type="date"
+                      value={supremeDate || ''}
+                      onChange={(e) => setSupremeDate(e.target.value)}
+                      className="border border-[#D4E1EA] rounded-md px-2 py-1 text-xs text-[#040E1B] bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (hasNextDate) {
+                        setSupremeDate(supremeDates[dateIndex + 1]);
+                      }
+                    }}
+                    disabled={!hasNextDate}
+                    className={`w-10 h-10 flex items-center justify-center rounded-full border ${
+                      hasNextDate ? 'border-[#D4E1EA] text-[#022658] hover:bg-[#F7F8FA]' : 'border-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
+                    aria-label="Next day"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {supremeLoading ? (
+                <div className="px-6 py-6 text-sm text-[#6B7280]">Loading cause list...</div>
+              ) : supremeError ? (
+                <div className="px-6 py-6 text-sm text-red-600">{supremeError}</div>
+              ) : activeCases.length === 0 ? (
+                <div className="px-6 py-10 text-sm text-[#040E1B] text-center font-semibold">
+                  {`There are no cases listed for ${
+                    supremeDate
+                      ? new Date(`${supremeDate}T00:00:00`).toLocaleDateString(undefined, {
+                          weekday: 'long',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })
+                      : 'today'
+                  }`}
+                </div>
+              ) : (
+                <div className="divide-y divide-[#E5E8EC]">
+                  {activeCases.map((item) => {
+                    const parties = getParties(item);
+                    return (
+                      <div key={`${item.id}-${item.suit_no}`} className="px-6 py-4">
+                        <div className="flex flex-col items-center text-center gap-2">
+                          {supremeCategory && (
+                            <div className="flex flex-wrap justify-center gap-4 text-sm font-semibold text-[#022658]">
+                              <span>{item.hearing_date || 'Date TBD'}</span>
+                              {item.hearing_time && <span>{item.hearing_time}</span>}
+                            </div>
+                          )}
+                          <div className="flex items-center justify-center gap-6 w-full">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-7 h-7 rounded-full bg-[#E5E8EC] text-[#022658] flex items-center justify-center text-xs font-semibold">
+                                {getInitials(parties.home)}
+                              </div>
+                              <span className="text-sm text-[#040E1B] font-medium truncate max-w-[180px]">
+                                {parties.home}
+                              </span>
+                            </div>
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="text-xs font-semibold text-[#022658] border border-[#D4E1EA] rounded-full px-2 py-0.5">
+                                {item.remarks || '—'}
+                              </span>
+                              <span className="text-[11px] text-[#9CA3AF]">VRS</span>
+                            </div>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-sm text-[#040E1B] font-medium truncate max-w-[180px]">
+                                {parties.away || '—'}
+                              </span>
+                              <div className="w-7 h-7 rounded-full bg-[#E5E8EC] text-[#022658] flex items-center justify-center text-xs font-semibold">
+                                {getInitials(parties.away || '')}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap justify-center gap-4 text-[11px] text-[#6B7280]">
+                            <span>{item.suit_no || 'N/A'}</span>
+                            {item.venue && <span>{item.venue}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </main>
+
+            <aside className="w-full lg:w-96 bg-white rounded-lg border border-[#E5E8EC]">
+              <div className="px-4 py-3 border-b border-[#E5E8EC]">
+                <span className="text-sm font-semibold text-[#040E1B]">Supreme Court News</span>
+              </div>
+              <div className="p-4 space-y-4">
+                {supremeNewsLoading ? (
+                  <div className="text-xs text-[#6B7280]">Loading news...</div>
+                ) : supremeNews.length === 0 ? (
+                  <div className="text-xs text-[#6B7280]">No news available.</div>
+                ) : (
+                  supremeNews.map((item) => (
+                    <button
+                      key={item.url}
+                      onClick={() => {
+                        setSelectedNewsUrl(item.url);
+                        setShowNewsModal(true);
+                      }}
+                      className={`w-full text-left flex gap-3 p-2 rounded-lg transition-colors ${
+                        selectedNewsUrl === item.url ? 'bg-[#F7F8FA]' : 'hover:bg-[#F7F8FA]'
+                      }`}
+                    >
+                      <div className="w-16 h-16 rounded-lg bg-[#E5E8EC] overflow-hidden flex-shrink-0">
+                        {item.image_url ? (
+                          <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[10px] text-[#6B7280]">
+                            DLN
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs text-[#6B7280]">{item.published || ''}</div>
+                        <div className="text-sm text-[#040E1B] font-semibold leading-snug">
+                          {item.title}
+                        </div>
+                        {item.excerpt && (
+                          <div className="text-xs text-[#6B7280]">{item.excerpt}</div>
+                        )}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        {showNewsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div className="bg-white w-[90%] max-w-5xl rounded-xl shadow-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#E5E8EC]">
+                <span className="text-sm font-semibold text-[#040E1B]">Supreme Court News</span>
+                <button
+                  onClick={() => setShowNewsModal(false)}
+                  className="text-sm text-[#6B7280] hover:text-[#022658]"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="h-[70vh]">
+                {selectedNewsUrl ? (
+                  <iframe
+                    title="Supreme Court News"
+                    src={selectedNewsUrl}
+                    className="w-full h-full"
+                    sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                  />
+                ) : (
+                  <div className="p-4 text-sm text-[#6B7280]">Select a news item to read.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // If a court is selected but no registry, show registry list
   if (selectedCourt && !selectedRegistry) {
     return (
@@ -991,93 +1448,108 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
               </div>
 
               {/* Filters and Actions */}
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <span className="text-[#040E1B] text-base font-semibold">Filter by Region</span>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 max-w-full">
-                    {REGION_OPTIONS.map((region) => (
-                    (() => {
-                      const isAll = region.value === 'All Regions';
-                      const total = regionCounts[region.value];
-                      const disabled = !isAll && total === 0;
-                      return (
-                      <button
-                        key={region.value}
-                        onClick={() => handleRegionSelect(region.value)}
-                      disabled={disabled}
-                      className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors ${
-                          selectedRegion === region.value
-                          ? 'bg-[#022658] text-white border-[#022658]'
-                          : disabled
-                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                            : 'bg-white text-[#525866] border-[#D4E1EA] hover:bg-[#F7F8FA]'
-                      }`}
-                      >
-                        {region.label}
-                      </button>
-                      );
-                    })()
-                    ))}
+              {!isSupremeCourt && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[#040E1B] text-base font-semibold">Filter by Region</span>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 max-w-full">
+                      {REGION_OPTIONS.map((region) => (
+                      (() => {
+                        const isAll = region.value === 'All Regions';
+                        const total = regionCounts[region.value];
+                        const disabled = !isAll && total === 0;
+                        return (
+                        <button
+                          key={region.value}
+                          onClick={() => handleRegionSelect(region.value)}
+                        disabled={disabled}
+                        className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap border transition-colors ${
+                            selectedRegion === region.value
+                            ? 'bg-[#022658] text-white border-[#022658]'
+                            : disabled
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                              : 'bg-white text-[#525866] border-[#D4E1EA] hover:bg-[#F7F8FA]'
+                        }`}
+                        >
+                          {region.label}
+                        </button>
+                        );
+                      })()
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="flex flex-col md:flex-row md:items-center gap-3 w-full">
-                    <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md min-w-0">
-                      <Search className="w-4 h-4 text-[#868C98] mr-2" />
-                <input
-                  type="text"
-                        value={courtsSearchQuery}
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                    <div className="flex flex-col md:flex-row md:items-center gap-3 w-full">
+                      <div className="flex items-center bg-[#F7F8FA] px-3 py-2 rounded-lg border border-[#E5E8EC] w-full md:max-w-md min-w-0">
+                        <Search className="w-4 h-4 text-[#868C98] mr-2" />
+                  <input
+                    type="text"
+                          value={courtsSearchQuery}
+                          onChange={(e) => {
+                            setCourtsSearchQuery(e.target.value);
+                            setCourtsPage(1);
+                          }}
+                          placeholder={`Search ${selectedCourt} courts...`}
+                          className="flex-1 bg-transparent text-sm text-[#040E1B] outline-none"
+                        />
+                      </div>
+                      <select
+                        value={selectedTown}
                         onChange={(e) => {
-                          setCourtsSearchQuery(e.target.value);
+                          setSelectedTown(e.target.value);
                           setCourtsPage(1);
                         }}
-                        placeholder={`Search ${selectedCourt} courts...`}
-                        className="flex-1 bg-transparent text-sm text-[#040E1B] outline-none"
-                      />
+                        disabled={selectedRegion === 'All Regions'}
+                        className={`px-3 py-2 text-sm border rounded-lg bg-white text-[#040E1B] w-full md:w-64 ${
+                          selectedRegion === 'All Regions'
+                            ? 'border-slate-200 text-slate-400 cursor-not-allowed'
+                            : 'border-[#D4E1EA]'
+                        }`}
+                      >
+                        <option value="All Towns">All Towns</option>
+                        {towns.map((town) => (
+                          <option key={town} value={town}>
+                            {town}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <select
-                      value={selectedTown}
-                      onChange={(e) => {
-                        setSelectedTown(e.target.value);
-                        setCourtsPage(1);
-                      }}
-                      disabled={selectedRegion === 'All Regions'}
-                      className={`px-3 py-2 text-sm border rounded-lg bg-white text-[#040E1B] w-full md:w-64 ${
-                        selectedRegion === 'All Regions'
-                          ? 'border-slate-200 text-slate-400 cursor-not-allowed'
-                          : 'border-[#D4E1EA]'
-                      }`}
-                    >
-                      <option value="All Towns">All Towns</option>
-                      {towns.map((town) => (
-                        <option key={town} value={town}>
-                          {town}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <button
-                      onClick={() => setShowAddCourtForm(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span className="text-sm font-medium">Add New Court</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setActiveCourtContext(null);
-                        setShowAddJudgeForm(true);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span className="text-sm font-medium">Add New Judge</span>
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => setShowAddCourtForm(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span className="text-sm font-medium">Add New Court</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setJudgesViewingRegistry({
+                            name: `${selectedCourt} Judges`,
+                            court_type: selectedCourt,
+                            region: selectedRegion !== 'All Regions' ? selectedRegion : undefined
+                          });
+                          setShowJudgesView(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors"
+                      >
+                        <span className="text-sm font-medium">View Judges</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setActiveCourtContext(null);
+                          setShowAddJudgeForm(true);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span className="text-sm font-medium">Add New Judge</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {courtsLoading ? (
                 <div className="flex items-center justify-center w-full py-8">
@@ -1224,34 +1696,36 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                 </button>
                 <span className="text-[#525866] text-xs whitespace-nowrap">CAUSE LIST - {selectedCourt}</span>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-[#525866] text-xs whitespace-nowrap">Show data for</span>
-                <div className="flex items-center bg-[#F7F8FA] p-2 gap-1 rounded-lg border border-solid border-[#D4E1EA]">
-                  <img
-                    src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/22ymbudi_expires_30_days.png"
-                    className="w-4 h-4 rounded-lg object-fill flex-shrink-0"
-                  />
-                  <span className="text-[#070810] text-sm whitespace-nowrap">Last 7 days (as of 29 Oct., 2025)</span>
-                  <img
-                    src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/fh66rupm_expires_30_days.png"
-                    className="w-4 h-4 object-fill flex-shrink-0"
-                  />
+              {!isSupremeCourt && (
+                <div className="flex items-center gap-3">
+                  <span className="text-[#525866] text-xs whitespace-nowrap">Show data for</span>
+                  <div className="flex items-center bg-[#F7F8FA] p-2 gap-1 rounded-lg border border-solid border-[#D4E1EA]">
+                    <img
+                      src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/22ymbudi_expires_30_days.png"
+                      className="w-4 h-4 rounded-lg object-fill flex-shrink-0"
+                    />
+                    <span className="text-[#070810] text-sm whitespace-nowrap">Last 7 days (as of 29 Oct., 2025)</span>
+                    <img
+                      src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/fh66rupm_expires_30_days.png"
+                      className="w-4 h-4 object-fill flex-shrink-0"
+                    />
+                  </div>
+                  <button className="flex items-center bg-[#F7F8FA] text-left p-2 gap-0.5 rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100 transition-colors">
+                    <span className="text-[#070810] text-sm whitespace-nowrap">Case type</span>
+                    <img
+                      src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/lxhi8ee8_expires_30_days.png"
+                      className="w-4 h-4 rounded-lg object-fill flex-shrink-0"
+                    />
+                  </button>
+                  <button className="flex items-center bg-[#F7F8FA] text-left p-2 gap-[3px] rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100 transition-colors">
+                    <span className="text-[#070810] text-sm whitespace-nowrap">Status</span>
+                    <img
+                      src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/6wkyev7x_expires_30_days.png"
+                      className="w-4 h-4 rounded-lg object-fill flex-shrink-0"
+                    />
+                  </button>
                 </div>
-                <button className="flex items-center bg-[#F7F8FA] text-left p-2 gap-0.5 rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100 transition-colors">
-                  <span className="text-[#070810] text-sm whitespace-nowrap">Case type</span>
-                  <img
-                    src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/lxhi8ee8_expires_30_days.png"
-                    className="w-4 h-4 rounded-lg object-fill flex-shrink-0"
-                  />
-                </button>
-                <button className="flex items-center bg-[#F7F8FA] text-left p-2 gap-[3px] rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100 transition-colors">
-                  <span className="text-[#070810] text-sm whitespace-nowrap">Status</span>
-                  <img
-                    src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/6wkyev7x_expires_30_days.png"
-                    className="w-4 h-4 rounded-lg object-fill flex-shrink-0"
-                  />
-                </button>
-              </div>
+              )}
             </div>
 
             {/* Back Button */}
@@ -1262,30 +1736,32 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
           </div>
 
           {/* Today/This Week Toggle */}
-          <div className="flex justify-center w-full px-6">
-            <div className="flex items-center bg-white py-1 px-2 gap-[50px] rounded-lg border border-solid border-[#D4E1EA]">
+          {!isSupremeCourt && (
+            <div className="flex justify-center w-full px-6">
+              <div className="flex items-center bg-white py-1 px-2 gap-[50px] rounded-lg border border-solid border-[#D4E1EA]">
+                <button
+                  onClick={() => setTimePeriod('today')}
+                className={`flex flex-col items-center w-40 rounded ${
+                  timePeriod === 'today' ? 'bg-[#022658] py-[7px]' : 'bg-transparent py-[9px]'
+                }`}
+              >
+                <span className={`text-base whitespace-nowrap ${timePeriod === 'today' ? 'text-white font-bold' : 'text-[#040E1B]'}`}>
+                  Today
+                </span>
+              </button>
               <button
-                onClick={() => setTimePeriod('today')}
-              className={`flex flex-col items-center w-40 rounded ${
-                timePeriod === 'today' ? 'bg-[#022658] py-[7px]' : 'bg-transparent py-[9px]'
-              }`}
-            >
-              <span className={`text-base whitespace-nowrap ${timePeriod === 'today' ? 'text-white font-bold' : 'text-[#040E1B]'}`}>
-                Today
-              </span>
-            </button>
-            <button
-              onClick={() => setTimePeriod('week')}
-              className={`flex flex-col items-center w-40 rounded ${
-                timePeriod === 'week' ? 'bg-[#022658] py-[7px]' : 'bg-transparent py-[9px]'
-              }`}
-            >
-              <span className={`text-base whitespace-nowrap ${timePeriod === 'week' ? 'text-white font-bold' : 'text-[#040E1B]'}`}>
-                This Week
-              </span>
-            </button>
+                onClick={() => setTimePeriod('week')}
+                className={`flex flex-col items-center w-40 rounded ${
+                  timePeriod === 'week' ? 'bg-[#022658] py-[7px]' : 'bg-transparent py-[9px]'
+                }`}
+              >
+                <span className={`text-base whitespace-nowrap ${timePeriod === 'week' ? 'text-white font-bold' : 'text-[#040E1B]'}`}>
+                  This Week
+                </span>
+              </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Today View - Calendar */}
           {timePeriod === 'today' && (

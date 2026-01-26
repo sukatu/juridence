@@ -4,6 +4,10 @@ from sqlalchemy import or_, and_, func
 from typing import List, Optional
 import math
 from datetime import date, datetime
+from urllib.parse import urljoin
+
+import requests
+from bs4 import BeautifulSoup
 
 from database import get_db
 from models.cause_list import CauseList
@@ -20,6 +24,7 @@ async def get_cause_lists(
     search: Optional[str] = Query(None, description="Search term"),
     status: Optional[str] = Query(None, description="Filter by status"),
     case_type: Optional[str] = Query(None, description="Filter by case type"),
+    court_type: Optional[str] = Query(None, description="Filter by court type"),
     judge_id: Optional[int] = Query(None, description="Filter by judge ID"),
     registry_id: Optional[int] = Query(None, description="Filter by registry ID"),
     court_id: Optional[int] = Query(None, description="Filter by court ID"),
@@ -53,6 +58,9 @@ async def get_cause_lists(
     
     if case_type:
         query = query.filter(CauseList.case_type == case_type)
+
+    if court_type:
+        query = query.filter(CauseList.court_type == court_type)
     
     if judge_id:
         query = query.filter(CauseList.judge_id == judge_id)
@@ -86,6 +94,115 @@ async def get_cause_lists(
         "limit": limit,
         "total_pages": total_pages
     }
+
+
+@router.get("/cause-lists/public", response_model=dict)
+async def get_public_cause_lists(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=500, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search term"),
+    case_type: Optional[str] = Query(None, description="Filter by case type"),
+    court_type: Optional[str] = Query(None, description="Filter by court type"),
+    hearing_date_from: Optional[date] = Query(None, description="Filter by hearing date from"),
+    hearing_date_to: Optional[date] = Query(None, description="Filter by hearing date to"),
+    db: Session = Depends(get_db),
+):
+    """Public cause list lookup (no auth)."""
+    query = db.query(CauseList).filter(CauseList.is_active == True)
+
+    if search:
+        search_term = f"%{search}%"
+        query = query.filter(
+            or_(
+                CauseList.case_title.ilike(search_term),
+                CauseList.suit_no.ilike(search_term),
+                CauseList.first_party_name.ilike(search_term),
+                CauseList.second_party_name.ilike(search_term),
+                CauseList.judge_name.ilike(search_term)
+            )
+        )
+
+    if case_type:
+        query = query.filter(CauseList.case_type == case_type)
+
+    if court_type:
+        query = query.filter(CauseList.court_type == court_type)
+
+    if hearing_date_from:
+        query = query.filter(CauseList.hearing_date >= hearing_date_from)
+
+    if hearing_date_to:
+        query = query.filter(CauseList.hearing_date <= hearing_date_to)
+
+    total = query.count()
+    offset = (page - 1) * limit
+    cause_lists = query.order_by(CauseList.hearing_date.desc(), CauseList.hearing_time).offset(offset).limit(limit).all()
+    serialized = [CauseListResponse.model_validate(cl).model_dump() for cl in cause_lists]
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+
+    return {
+        "cause_lists": serialized,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages
+    }
+
+
+@router.get("/cause-lists/public/news/supreme-court", response_model=dict)
+async def get_supreme_court_news():
+    """Public Supreme Court news (scraped from Dennislaw News)."""
+    base_url = "https://www.dennislawnews.com/general-news/supreme-court-news"
+    try:
+        response = requests.get(base_url, timeout=15)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch news: {exc}") from exc
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    items = []
+    for h3 in soup.select("h3"):
+        link = h3.find("a")
+        if not link:
+            continue
+        title = link.get_text(strip=True)
+        href = link.get("href")
+        if not href:
+            continue
+        article_url = urljoin(base_url, href)
+        date_node = h3.find_next_sibling("p")
+        excerpt_node = date_node.find_next_sibling("p") if date_node else None
+        published = date_node.get_text(strip=True) if date_node else None
+        excerpt = excerpt_node.get_text(strip=True) if excerpt_node else None
+
+        image_url = None
+        try:
+            article_response = requests.get(article_url, timeout=15)
+            article_response.raise_for_status()
+            article_soup = BeautifulSoup(article_response.text, "html.parser")
+            og_image = article_soup.find("meta", property="og:image")
+            if og_image and og_image.get("content"):
+                image_url = og_image.get("content")
+            if not image_url:
+                twitter_image = article_soup.find("meta", attrs={"name": "twitter:image"})
+                if twitter_image and twitter_image.get("content"):
+                    image_url = twitter_image.get("content")
+        except requests.RequestException:
+            image_url = None
+
+        items.append(
+            {
+                "title": title,
+                "url": article_url,
+                "published": published,
+                "excerpt": excerpt,
+                "image_url": image_url,
+            }
+        )
+        if len(items) >= 5:
+            break
+
+    return {"items": items}
 
 @router.get("/admin/cause-lists/{cause_list_id}", response_model=CauseListResponse)
 async def get_cause_list(
