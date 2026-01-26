@@ -79,6 +79,12 @@ const JudgeDetailsDrawer = ({ judge, registry, onClose, onSave }) => {
   const statuses = ['Active', 'Inactive', 'Retired', 'On Leave'];
   const legalBackgrounds = ['Commercial & Contract Law', 'Criminal Law', 'Civil Law', 'Constitutional Law', 'Family Law'];
 
+  const courtLabel = (() => {
+    const base = registry?.court_type || judge?.court_type || registry?.name || 'Court';
+    const division = registry?.division || registry?.court_division || judge?.court_division;
+    return division ? `${base} (${division})` : base;
+  })();
+
   if (!judge) return null;
 
   // If cause list page is shown
@@ -130,6 +136,7 @@ const JudgeDetailsDrawer = ({ judge, registry, onClose, onSave }) => {
             {/* Header */}
             <div className="flex flex-col gap-6">
               <span className="text-[#525866] text-xs font-normal opacity-75">EDIT TASK</span>
+              <span className="text-[#050F1C] text-lg font-bold">{courtLabel}</span>
 
               {/* Judge's name and ID */}
               <div className="flex flex-col gap-2">

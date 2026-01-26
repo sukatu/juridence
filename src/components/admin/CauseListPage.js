@@ -115,10 +115,34 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     { key: 'J7', label: 'Review Jurisdiction Motions' },
     { key: 'J8', label: 'Interlocutory Motions (General)' }
   ];
+  const supremeCategoryColors = {
+    J1: { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-200' },
+    J2: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200' },
+    J3: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200' },
+    J4: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200' },
+    J5: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' },
+    J6: { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-200' },
+    J7: { bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-200' },
+    J8: { bg: 'bg-teal-100', text: 'text-teal-700', border: 'border-teal-200' }
+  };
 
   const getSuitPrefix = (suitNo = '') => {
     const match = suitNo.match(/J([1-9])/i);
     return match ? `J${match[1]}` : 'Other';
+  };
+  const getCategoryMeta = (suitNo) => {
+    const key = getSuitPrefix(suitNo);
+    const category = supremeCategories.find((item) => item.key === key);
+    const colors = supremeCategoryColors[key] || {
+      bg: 'bg-slate-100',
+      text: 'text-slate-600',
+      border: 'border-slate-200'
+    };
+    return {
+      key,
+      label: category?.label || 'Other',
+      ...colors
+    };
   };
 
   const supremeCasesByCategory = useMemo(() => {
@@ -1295,9 +1319,15 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                 <div className="divide-y divide-[#E5E8EC]">
                   {activeCases.map((item) => {
                     const parties = getParties(item);
+                    const categoryMeta = getCategoryMeta(item.suit_no);
                     return (
-                      <div key={`${item.id}-${item.suit_no}`} className="px-6 py-4">
-                        <div className="flex flex-col items-center text-center gap-2">
+                      <div key={`${item.id}-${item.suit_no}`} className="px-6 py-6 pt-10 relative">
+                        <div
+                          className={`absolute right-6 top-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${categoryMeta.bg} ${categoryMeta.text} ${categoryMeta.border}`}
+                        >
+                          {categoryMeta.label}
+                        </div>
+                        <div className="flex flex-col items-center text-center gap-2 mt-2">
                           {supremeCategory && (
                             <div className="flex flex-wrap justify-center gap-4 text-sm font-semibold text-[#022658]">
                               <span>{item.hearing_date || 'Date TBD'}</span>

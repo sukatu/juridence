@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit, Save, X, ArrowLeft, ChevronRight, Search, Filter, ChevronLeft, ChevronDown, ExternalLink, FileText } from 'lucide-react';
+import { Edit, Save, X, ArrowLeft, ChevronRight, Search, Filter, ChevronLeft, ChevronDown, ExternalLink } from 'lucide-react';
 import { apiGet } from '../../utils/api';
 import AdminHeader from './AdminHeader';
 
@@ -27,9 +27,6 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
   const [rulingsLoading, setRulingsLoading] = useState(false);
   const [rulingsData, setRulingsData] = useState([]);
   const rulingsFilterRef = useRef(null);
-  const [showSummaryModal, setShowSummaryModal] = useState(false);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryRecord, setSummaryRecord] = useState(null);
 
   // Pending cases state
   const [pendingPage, setPendingPage] = useState(1);
@@ -44,32 +41,6 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
   const bankName = typeof bank === 'string' 
     ? bank 
     : (bank?.name || bank?.short_name || 'Unknown Bank');
-
-  const handleOpenSummary = async (caseItem) => {
-    if (!caseItem?.id) {
-      setSummaryRecord({ title: caseItem?.title, case_summary: null });
-      setShowSummaryModal(true);
-      return;
-    }
-
-    try {
-      setSummaryLoading(true);
-      setShowSummaryModal(true);
-      const fullCaseData = await apiGet(`/cases/${caseItem.id}`);
-      setSummaryRecord(fullCaseData || caseItem);
-    } catch (err) {
-      console.error('Error fetching case summary:', err);
-      setSummaryRecord(caseItem);
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
-
-  const handleCloseSummary = () => {
-    setShowSummaryModal(false);
-    setSummaryRecord(null);
-    setSummaryLoading(false);
-  };
 
   // Fetch bank details from API
   useEffect(() => {
@@ -1133,14 +1104,7 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
                                   <p className="text-[#040E1B] text-sm">{formatDate(ruling.case.date) || 'N/A'}</p>
                                 </div>
                               </div>
-                              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-[#E4E7EB]">
-                                <button
-                                  onClick={() => handleOpenSummary(ruling.case)}
-                                  className="flex items-center gap-2 px-4 py-2 bg-[#E6ECF3] text-[#022658] rounded-lg hover:bg-[#D9E3F0] transition-colors text-sm font-medium"
-                                >
-                                  <FileText className="w-4 h-4" />
-                                  View Summary
-                                </button>
+                              <div className="flex justify-end pt-2 border-t border-[#E4E7EB]">
                                 <button
                                   onClick={async () => {
                                     try {
@@ -1441,39 +1405,6 @@ const BankDetails = ({ bank, industry, onBack, userInfo, onNavigate, onLogout })
             )}
           </div>
         </div>
-
-        {showSummaryModal && (
-          <>
-            <div
-              className="fixed inset-0 bg-black bg-opacity-50 z-50 backdrop-blur-sm"
-              onClick={handleCloseSummary}
-            ></div>
-            <div
-              className="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-2xl z-50 p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                onClick={handleCloseSummary}
-                className="absolute top-6 right-6 w-6 h-6 flex items-center justify-center hover:opacity-70 transition-opacity"
-              >
-                <X className="w-6 h-6 text-[#525866]" />
-              </button>
-              <div className="pr-8">
-                <div className="mb-4">
-                  <span className="text-xs font-semibold text-[#525866] uppercase tracking-wide">Summary</span>
-                  <h3 className="text-xl font-bold text-[#040E1B] mt-2">
-                    {summaryRecord?.title || 'Case Summary'}
-                  </h3>
-                </div>
-                <div className="bg-[#F7F8FA] border border-[#E4E7EB] rounded-lg p-4 text-sm text-[#040E1B] whitespace-pre-wrap">
-                  {summaryLoading
-                    ? 'Loading summary...'
-                    : (summaryRecord?.case_summary || 'Summary not available for this case yet.')}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
