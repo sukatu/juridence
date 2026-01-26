@@ -232,6 +232,23 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     return { home, away };
   };
 
+  const getPartyLabels = (suitNo = '') => {
+    const key = getSuitPrefix(suitNo);
+    if (key === 'J1') {
+      return { left: 'Plaintiff', right: 'Defendant' };
+    }
+    if (key === 'J2' || key === 'J3' || key === 'J4') {
+      return { left: 'Appellant', right: 'Respondent' };
+    }
+    if (key === 'J5') {
+      return { left: 'Applicant', right: 'Respondent', third: 'Interested Parties' };
+    }
+    if (key === 'J6') {
+      return { left: 'Plaintiff', right: 'Respondent' };
+    }
+    return { left: 'Applicant', right: 'Respondent' };
+  };
+
   useEffect(() => {
     const fetchSupremeCases = async () => {
       if (!isSupremeCourt) {
@@ -1379,12 +1396,20 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                       )}
                       {supremeActiveTab === 'parties' && (() => {
                         const parties = getParties(supremeSelectedCase);
+                        const labels = getPartyLabels(supremeSelectedCase?.suit_no);
+                        const rows = [
+                          { label: labels.left, value: parties.home },
+                          { label: labels.right, value: parties.away || '—' }
+                        ];
+                        if (labels.third) {
+                          rows.push({
+                            label: labels.third,
+                            value: supremeSelectedCase?.interested_parties || supremeSelectedCase?.third_party_name || '—'
+                          });
+                        }
                         return (
                           <div className="space-y-3">
-                            {[
-                              { label: 'Applicant', value: parties.home },
-                              { label: 'Respondent', value: parties.away || '—' }
-                            ].map((party) => (
+                            {rows.map((party) => (
                               <div key={party.label} className="p-4 rounded-lg border border-[#E5E8EC]">
                                 <div className="text-xs text-[#6B7280]">{party.label}</div>
                                 <div className="text-sm font-semibold text-[#040E1B]">{party.value}</div>
@@ -1448,6 +1473,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                   {activeCases.map((item) => {
                     const parties = getParties(item);
                     const categoryMeta = getCategoryMeta(item.suit_no);
+                    const partyLabels = getPartyLabels(item.suit_no);
                     return (
                       <button
                         type="button"
@@ -1470,25 +1496,35 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                               {item.hearing_time && <span>{item.hearing_time}</span>}
                             </div>
                           )}
-                          <div className="grid grid-cols-3 items-center w-full gap-4">
-                            <div className="flex items-center gap-2 min-w-0 justify-self-start">
+                          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center w-full gap-0.5">
+                            <div className="flex items-center gap-1 min-w-0 justify-self-start">
                               <div className="w-7 h-7 rounded-full bg-[#E5E8EC] text-[#022658] flex items-center justify-center text-xs font-semibold">
                                 {getInitials(parties.home)}
                               </div>
-                              <span className="text-sm text-[#040E1B] font-medium truncate max-w-[180px]">
-                                {parties.home}
-                              </span>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-[10px] text-[#9CA3AF] uppercase tracking-wide">
+                                  {partyLabels.left}
+                                </span>
+                                <span className="text-sm text-[#040E1B] font-medium truncate max-w-[120px]">
+                                  {parties.home}
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-center gap-1 justify-self-center">
+                            <div className="flex flex-col items-center gap-1 justify-self-center px-1">
                               <span className="text-xs font-semibold text-[#022658] border border-[#D4E1EA] rounded-full px-2 py-0.5">
                                 {item.remarks || '—'}
                               </span>
                               <span className="text-[11px] text-[#9CA3AF]">VRS</span>
                             </div>
-                            <div className="flex items-center gap-2 min-w-0 justify-self-end">
-                              <span className="text-sm text-[#040E1B] font-medium truncate max-w-[180px]">
-                                {parties.away || '—'}
-                              </span>
+                            <div className="flex items-center gap-1 min-w-0 justify-self-end">
+                              <div className="flex flex-col min-w-0 items-end">
+                                <span className="text-[10px] text-[#9CA3AF] uppercase tracking-wide">
+                                  {partyLabels.right}
+                                </span>
+                                <span className="text-sm text-[#040E1B] font-medium truncate max-w-[120px]">
+                                  {parties.away || '—'}
+                                </span>
+                              </div>
                               <div className="w-7 h-7 rounded-full bg-[#E5E8EC] text-[#022658] flex items-center justify-center text-xs font-semibold">
                                 {getInitials(parties.away || '')}
                               </div>
