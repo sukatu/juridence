@@ -1470,8 +1470,8 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                               {item.hearing_time && <span>{item.hearing_time}</span>}
                             </div>
                           )}
-                          <div className="flex items-center justify-center gap-6 w-full">
-                            <div className="flex items-center gap-2 min-w-0">
+                          <div className="grid grid-cols-3 items-center w-full gap-4">
+                            <div className="flex items-center gap-2 min-w-0 justify-self-start">
                               <div className="w-7 h-7 rounded-full bg-[#E5E8EC] text-[#022658] flex items-center justify-center text-xs font-semibold">
                                 {getInitials(parties.home)}
                               </div>
@@ -1479,13 +1479,13 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                                 {parties.home}
                               </span>
                             </div>
-                            <div className="flex flex-col items-center gap-1">
+                            <div className="flex flex-col items-center gap-1 justify-self-center">
                               <span className="text-xs font-semibold text-[#022658] border border-[#D4E1EA] rounded-full px-2 py-0.5">
                                 {item.remarks || '—'}
                               </span>
                               <span className="text-[11px] text-[#9CA3AF]">VRS</span>
                             </div>
-                            <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex items-center gap-2 min-w-0 justify-self-end">
                               <span className="text-sm text-[#040E1B] font-medium truncate max-w-[180px]">
                                 {parties.away || '—'}
                               </span>
