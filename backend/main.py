@@ -64,6 +64,7 @@ from routes import case_summarization
 from routes import case_summaries
 from routes import watchlist
 from routes import cause_list
+from routes import dashboard_search
 from config import settings
 
 # Application lifespan
@@ -164,6 +165,7 @@ app.include_router(subscription.router, prefix="/api/subscription", tags=["subsc
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(security.router, prefix="/api/security", tags=["security"])
 app.include_router(admin.router, tags=["admin"])
+app.include_router(dashboard_search.router)
 app.include_router(admin_payments.router, prefix="/api/admin/payments", tags=["admin_payments"])
 app.include_router(admin_case_hearings.router, prefix="/api", tags=["admin_case_hearings"])
 app.include_router(judges.router, prefix="/api", tags=["judges"])

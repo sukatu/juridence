@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import AdminHeader from '../components/admin/AdminHeader';
-import { Search, X, ChevronDown, ChevronUp, Database, User, Calendar, MapPin, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileText, Eye, Download, Printer, Flag, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, X, Check, Database, User, Calendar, MapPin, ArrowLeft, ArrowUp, ArrowDown, FileText, Eye, Download, Printer, Flag, ChevronLeft, ChevronRight } from 'lucide-react';
 import { apiGet } from '../utils/api';
 
 const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
@@ -10,7 +10,6 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
     profession: '',
     databaseType: 'all' // 'all', 'change_of_name', 'change_of_pob', 'change_of_dob', 'marriage_officers', 'judgements_rulings'
   });
-  const [isDatabaseSectionOpen, setIsDatabaseSectionOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [searchProgress, setSearchProgress] = useState(0);
@@ -90,7 +89,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
     {
       id: 'judgements_rulings',
       label: 'Judgements & Rulings',
-      description: 'Search court judgements and rulings by case title'
+      description: 'Search court judgements and rulings by title or content'
     }
   ];
 
@@ -612,142 +611,155 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
 
   // Render search form
   const renderSearchForm = () => (
-    <div className="bg-[#F7F8FA] min-h-screen">
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
-      
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-md border border-slate-200 p-6">
-          <h1 className="text-2xl font-bold text-slate-900 mb-6">Person Search</h1>
-          
-          <div className="space-y-6">
-            {/* Name Field */}
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-2">
-                Name
-              </label>
-              <input
-                type="text"
-                id="name"
-                name="name"
-                value={searchData.name}
-                onChange={handleInputChange}
-                placeholder="Enter name"
-                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] outline-none"
-              />
+    <div className="min-h-screen bg-[#f4f7f8]">
+      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Person search" />
+
+      <div className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+        <div className="mb-8 max-w-3xl">
+          <p className="text-sm font-semibold text-[#17875a]">Legal data</p>
+          <h1 className="mt-1 text-2xl font-semibold text-[#102f49] sm:text-3xl">Search person records</h1>
+          <p className="mt-2 text-sm leading-6 text-[#71818a]">
+            Find identity changes, birth record corrections, marriage officers, judgements and rulings.
+          </p>
+        </div>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleSearch();
+          }}
+          className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_430px]"
+        >
+          <section className="rounded-md border border-[#dce5e9] bg-white shadow-[0_3px_12px_rgba(10,35,53,0.04)]">
+            <div className="border-b border-[#e3eaed] px-5 py-4 sm:px-6">
+              <h2 className="font-semibold text-[#17334a]">Search details</h2>
+              <p className="mt-1 text-xs text-[#7a8991]">Enter the person&apos;s full or known name.</p>
             </div>
 
-            {/* Location and Profession Fields hidden */}
-
-            {/* Database Type Selection - Collapsible Radio Buttons */}
-            <div>
-              <button
-                type="button"
-                onClick={() => setIsDatabaseSectionOpen(!isDatabaseSectionOpen)}
-                className="w-full flex items-center justify-between text-sm font-medium text-slate-700 mb-3 p-2 hover:bg-slate-50 rounded-lg transition-colors"
-              >
-                <span>Select Database</span>
-                {isDatabaseSectionOpen ? (
-                  <ChevronUp className="w-4 h-4" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
+            <div className="p-5 sm:p-6">
+              <label htmlFor="name" className="mb-2 block text-sm font-semibold text-[#20384c]">Person name</label>
+              <div className="flex h-14 items-center gap-3 rounded-md border border-[#bdcbd1] bg-white px-4 transition-colors focus-within:border-[#17875a] focus-within:ring-2 focus-within:ring-[#17875a]/15">
+                <Search size={20} className="shrink-0 text-[#71838d]" />
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  value={searchData.name}
+                  onChange={handleInputChange}
+                  placeholder="e.g. Kwame Mensah"
+                  autoComplete="off"
+                  className="min-w-0 flex-1 bg-transparent text-base text-[#102033] outline-none placeholder:text-[#8b989f]"
+                />
+                {searchData.name && (
+                  <button type="button" onClick={() => setSearchData((current) => ({ ...current, name: '' }))} className="text-[#839199] hover:text-[#17334a]" aria-label="Clear name">
+                    <X size={18} />
+                  </button>
                 )}
-              </button>
-              {isDatabaseSectionOpen && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {databaseOptions.map((option) => (
-                    <label
-                      key={option.id}
-                      className="flex items-start p-4 border border-slate-300 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors"
-                    >
-                      <input
-                        type="radio"
-                        name="databaseType"
-                        value={option.id}
-                        checked={searchData.databaseType === option.id}
-                        onChange={() => handleDatabaseTypeChange(option.id)}
-                        className="mt-1 mr-3 h-4 w-4 text-[#022658] focus:ring-[#022658] focus:ring-2 border-slate-300"
-                      />
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-slate-900">
-                          {option.label}
-                        </div>
-                        {option.description && (
-                          <div className="text-xs text-slate-500 mt-1">
-                            {option.description}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  ))}
+              </div>
+
+              <div className="mt-5 rounded-md border border-[#dce5e9] bg-[#f7faf9] p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#e2f4eb] text-[#0c6b4a]"><Database size={18} /></span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#71818a]">Selected source</p>
+                    <p className="mt-1 text-sm font-semibold text-[#17334a]">
+                      {databaseOptions.find((option) => option.id === searchData.databaseType)?.label}
+                    </p>
+                  </div>
                 </div>
+              </div>
+
+              {searchError && (
+                <div role="alert" className="mt-5 border-l-4 border-[#c83d4d] bg-[#fff2f3] px-4 py-3 text-sm text-[#9f2635]">{searchError}</div>
               )}
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-4 pt-4">
-              <button
-                type="button"
-                onClick={handleClear}
-                className="flex items-center gap-2 px-6 py-2.5 border border-[#D4E1EA] text-[#525866] rounded-lg hover:bg-[#F7F8FA] transition-colors font-medium"
-              >
-                <X className="w-4 h-4" />
-                Clear
+            <div className="flex flex-col-reverse gap-3 border-t border-[#e3eaed] px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button type="button" onClick={handleClear} className="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-[#c7d3d8] px-5 text-sm font-semibold text-[#526773] hover:bg-[#f2f6f6]">
+                <X size={16} /> Clear
               </button>
-              <button
-                type="button"
-                onClick={() => handleSearch()}
-                disabled={!searchData.name.trim()}
-                className="flex items-center gap-2 px-6 py-2.5 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors font-medium flex-1 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Search className="w-4 h-4" />
-                Search
+              <button type="submit" disabled={!searchData.name.trim()} className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-[#0b2942] px-7 text-sm font-bold text-white hover:bg-[#123b5b] disabled:cursor-not-allowed disabled:opacity-45">
+                <Search size={17} /> Search records
               </button>
             </div>
+          </section>
 
-            {/* Error Message */}
-            {searchError && (
-              <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="text-sm font-medium text-red-800">{searchError}</div>
-              </div>
-            )}
-          </div>
-        </div>
+          <section className="rounded-md border border-[#dce5e9] bg-white shadow-[0_3px_12px_rgba(10,35,53,0.04)]">
+            <div className="border-b border-[#e3eaed] px-5 py-4">
+              <h2 className="font-semibold text-[#17334a]">Record source</h2>
+              <p className="mt-1 text-xs text-[#7a8991]">Choose where to run this search.</p>
+            </div>
+            <div className="divide-y divide-[#e7edef]">
+              {databaseOptions.map((option) => {
+                const selected = searchData.databaseType === option.id;
+                return (
+                  <label key={option.id} className={`group flex cursor-pointer items-start gap-3 px-5 py-3.5 transition-colors ${selected ? 'bg-[#f0f8f4]' : 'hover:bg-[#f8fafa]'}`}>
+                    <input
+                      type="radio"
+                      name="databaseType"
+                      value={option.id}
+                      checked={selected}
+                      onChange={() => handleDatabaseTypeChange(option.id)}
+                      className="sr-only"
+                    />
+                    <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-[#17875a] bg-[#17875a] text-white' : 'border-[#aebdc4] bg-white'}`}>
+                      {selected && <Check size={13} strokeWidth={3} />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className={`block text-sm font-semibold ${selected ? 'text-[#0c6b4a]' : 'text-[#405867]'}`}>{option.label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-[#7a8991]">{option.description}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+        </form>
       </div>
     </div>
   );
 
   // Render search results view
   const renderResultsView = () => (
-    <div className="bg-[#F7F8FA] min-h-screen">
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
-      
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen bg-[#f4f7f8]">
+      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Person search" />
+
+      <div className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
         {/* Back Button and Title */}
-        <div className="mb-6">
+        <div className="mb-7">
           <button
             onClick={handleBackToForm}
-            className="flex items-center gap-2 text-slate-700 hover:text-slate-900 mb-4 transition-colors"
+            className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-[#526773] transition-colors hover:text-[#0c6b4a]"
           >
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium">Back to Search</span>
+            <ArrowLeft className="h-4 w-4" />
+            <span>New search</span>
           </button>
-          <h1 className="text-2xl font-bold text-slate-900">Search Results</h1>
-          {searchQuery && (
-            <p className="text-slate-600 mt-2">Searching for: <span className="font-semibold">"{searchQuery}"</span></p>
-          )}
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-sm font-semibold text-[#17875a]">Search results</p>
+              <h1 className="mt-1 text-2xl font-semibold text-[#102f49] sm:text-3xl">{searchQuery || 'Person records'}</h1>
+              <p className="mt-2 text-sm text-[#71818a]">Matches across the selected legal record sources.</p>
+            </div>
+            {!isSearching && searchResults && (
+              <div className="flex items-center gap-2 text-sm text-[#526773]">
+                <span className="h-2 w-2 rounded-full bg-[#23a36d]" />
+                {Number(totalResults || 0).toLocaleString()} total {totalResults === 1 ? 'match' : 'matches'}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Progress Bar and Database Cards */}
         {isSearching && (
-          <div className="bg-white rounded-lg shadow-md border border-slate-200 p-6 mb-6">
+          <div className="mb-6 rounded-md border border-[#dce5e9] bg-white p-5 shadow-[0_3px_12px_rgba(10,35,53,0.04)] sm:p-6">
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-slate-700">Searching databases...</span>
-                <span className="text-sm font-medium text-[#022658]">{searchProgress}%</span>
+                <span className="text-sm font-semibold text-[#405867]">Searching legal records...</span>
+                <span className="text-sm font-semibold text-[#0c6b4a]">{searchProgress}%</span>
               </div>
-              <div className="w-full bg-slate-200 rounded-full h-2.5">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-[#e7edef]">
                 <div 
-                  className="bg-[#022658] h-2.5 rounded-full transition-all duration-300"
+                  className="h-2 rounded-full bg-[#23a36d] transition-all duration-300"
                   style={{ width: `${searchProgress}%` }}
                 />
               </div>
@@ -755,29 +767,29 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
 
             {/* Database Search Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
-                <User className="w-5 h-5 text-[#022658]" />
+              <div className="flex items-center gap-3 rounded-md border border-[#dce5e9] bg-[#f7faf9] p-3">
+                <User className="h-5 w-5 text-[#0c6b4a]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Change of Name</div>
                   <div className="text-xs text-slate-600">Searching...</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
-                <Calendar className="w-5 h-5 text-[#022658]" />
+              <div className="flex items-center gap-3 rounded-md border border-[#dce5e9] bg-[#f7faf9] p-3">
+                <Calendar className="h-5 w-5 text-[#0c6b4a]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Correction of Date of Birth</div>
                   <div className="text-xs text-slate-600">Searching...</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
-                <MapPin className="w-5 h-5 text-[#022658]" />
+              <div className="flex items-center gap-3 rounded-md border border-[#dce5e9] bg-[#f7faf9] p-3">
+                <MapPin className="h-5 w-5 text-[#0c6b4a]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Correction of Place of Birth</div>
                   <div className="text-xs text-slate-600">Searching...</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-3 bg-[#F4F6F9] rounded-lg border border-[#D4E1EA]">
-                <Database className="w-5 h-5 text-[#022658]" />
+              <div className="flex items-center gap-3 rounded-md border border-[#dce5e9] bg-[#f7faf9] p-3">
+                <Database className="h-5 w-5 text-[#0c6b4a]" />
                 <div>
                   <div className="text-sm font-medium text-slate-900">Marriage Officers</div>
                   <div className="text-xs text-slate-600">Searching...</div>
@@ -796,135 +808,53 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
 
         {/* Tabs and Search Results */}
         {!isSearching && searchResults && Object.keys(searchResults).some(key => searchResults[key] && searchResults[key].length > 0) && (
-          <div className="bg-white rounded-lg shadow-md border border-slate-200 overflow-hidden">
+          <div className="overflow-hidden rounded-md border border-[#dce5e9] bg-white shadow-[0_3px_12px_rgba(10,35,53,0.04)]">
             {/* Tabs Navigation */}
-            <div className="border-b border-slate-200">
-              <div className="flex items-center gap-1 px-4">
-                <button
-                  onClick={() => handleTabChange('change_of_name')}
-                  className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    activeTab === 'change_of_name'
-                      ? 'border-[#022658] text-[#022658]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    <span>Change of Name</span>
-                    {getTabCount('change_of_name') > 0 && (
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                        activeTab === 'change_of_name'
-                          ? 'bg-[#E6ECF3] text-[#022658]'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {getTabCount('change_of_name')}
+            <div className="border-b border-[#dce5e9]">
+              <div className="flex items-center gap-1 overflow-x-auto px-4">
+                {[
+                  ['change_of_name', 'Change of name', User],
+                  ['correction_of_place_of_birth', 'Place of birth', MapPin],
+                  ['correction_of_date_of_birth', 'Date of birth', Calendar],
+                  ['marriage_officer', 'Marriage officers', Database],
+                  ['judgements_rulings', 'Judgements & rulings', FileText],
+                ].map(([tab, label, Icon]) => {
+                  const selected = activeTab === tab;
+                  const count = getTabCount(tab);
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => handleTabChange(tab)}
+                      className={`shrink-0 border-b-2 px-4 py-3.5 text-sm font-semibold transition-colors ${
+                        selected
+                          ? 'border-[#17875a] text-[#0c6b4a]'
+                          : 'border-transparent text-[#687983] hover:border-[#a8b8bf] hover:text-[#17334a]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon className="h-4 w-4" />
+                        <span>{label}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${selected ? 'bg-[#e2f4eb] text-[#0c6b4a]' : 'bg-[#edf1f3] text-[#71818a]'}`}>{count}</span>
                       </span>
-                    )}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleTabChange('correction_of_place_of_birth')}
-                  className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    activeTab === 'correction_of_place_of_birth'
-                      ? 'border-[#022658] text-[#022658]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4" />
-                    <span>Correction of Place of Birth</span>
-                    {getTabCount('correction_of_place_of_birth') > 0 && (
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                        activeTab === 'correction_of_place_of_birth'
-                          ? 'bg-[#E6ECF3] text-[#022658]'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {getTabCount('correction_of_place_of_birth')}
-                      </span>
-                    )}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleTabChange('correction_of_date_of_birth')}
-                  className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    activeTab === 'correction_of_date_of_birth'
-                      ? 'border-[#022658] text-[#022658]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span>Correction of Date of Birth</span>
-                    {getTabCount('correction_of_date_of_birth') > 0 && (
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                        activeTab === 'correction_of_date_of_birth'
-                          ? 'bg-[#E6ECF3] text-[#022658]'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {getTabCount('correction_of_date_of_birth')}
-                      </span>
-                    )}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleTabChange('marriage_officer')}
-                  className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    activeTab === 'marriage_officer'
-                      ? 'border-[#022658] text-[#022658]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Database className="w-4 h-4" />
-                    <span>Marriage Officers</span>
-                    {getTabCount('marriage_officer') > 0 && (
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                        activeTab === 'marriage_officer'
-                          ? 'bg-[#E6ECF3] text-[#022658]'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {getTabCount('marriage_officer')}
-                      </span>
-                    )}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleTabChange('judgements_rulings')}
-                  className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
-                    activeTab === 'judgements_rulings'
-                      ? 'border-[#022658] text-[#022658]'
-                      : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    <span>Judgements &amp; Rulings</span>
-                    {getTabCount('judgements_rulings') > 0 && (
-                      <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                        activeTab === 'judgements_rulings'
-                          ? 'bg-[#E6ECF3] text-[#022658]'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {getTabCount('judgements_rulings')}
-                      </span>
-                    )}
-                  </div>
-                </button>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Tab Content */}
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               {/* Search/Filter Input */}
               <div className="mb-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <div className="relative max-w-2xl">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#71838d]" />
                   <input
                     type="text"
                     value={categoryFilter}
                     onChange={handleCategoryFilterChange}
                     placeholder={`Search within ${activeTab === 'change_of_name' ? 'Change of Name' : activeTab === 'correction_of_place_of_birth' ? 'Correction of Place of Birth' : activeTab === 'correction_of_date_of_birth' ? 'Correction of Date of Birth' : activeTab === 'marriage_officer' ? 'Marriage Officers' : 'Judgements & Rulings'} results...`}
-                    className="w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] outline-none transition-colors"
+                    className="h-11 w-full rounded-md border border-[#bdcbd1] bg-white pl-10 pr-10 text-sm text-[#102033] outline-none transition-colors placeholder:text-[#8b989f] focus:border-[#17875a] focus:ring-2 focus:ring-[#17875a]/15"
                   />
                   {categoryFilter && (
                     <button
@@ -932,7 +862,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                         setCategoryFilter('');
                         setCategoryCurrentPage(1);
                       }}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#839199] transition-colors hover:text-[#17334a]"
                     >
                       <X className="w-5 h-5" />
                     </button>
@@ -949,8 +879,8 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                 return (
                   <>
                     {filteredResults.length > 0 && (
-                      <div className="flex items-center justify-between mb-4">
-                        <p className="text-sm text-slate-600">
+                      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                        <p className="text-sm text-[#687983]">
                           Showing <span className="font-semibold">{paginatedResults.length}</span> of <span className="font-semibold">{filteredResults.length}</span> result{filteredResults.length !== 1 ? 's' : ''}
                           {categoryFilter && (
                             <span className="ml-2 text-slate-500">
@@ -960,7 +890,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                         </p>
                         <button
                           onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                          className="inline-flex h-9 items-center justify-center gap-2 self-start rounded-md border border-[#c7d3d8] bg-white px-3 text-sm font-semibold text-[#526773] transition-colors hover:bg-[#f2f6f6] sm:self-auto"
                           title={`Sort ${sortOrder === 'asc' ? 'descending' : 'ascending'}`}
                         >
                           {sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
@@ -985,31 +915,31 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`change_of_name-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
+                        <div key={`change_of_name-${result.id}`} className="group overflow-hidden rounded-md border border-[#dce5e9] bg-white transition-colors hover:border-[#a9c7bc] hover:shadow-[0_8px_24px_rgba(10,35,53,0.08)]">
                           <div className="p-5">
                             <div className="flex items-start justify-between gap-3 mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.name}</h3>
                               {result.match_type === 'current_name' && (
-                                <span className="px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-green-500 to-green-600 rounded-full shadow-sm whitespace-nowrap">New Name</span>
+                                <span className="whitespace-nowrap rounded-full bg-[#e2f4eb] px-2.5 py-1 text-xs font-semibold text-[#0c6b4a]">New name</span>
                               )}
                               {result.match_type === 'old_name' && (
-                                <span className="px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-full shadow-sm whitespace-nowrap">Old Name</span>
+                                <span className="whitespace-nowrap rounded-full bg-[#fff0e9] px-2.5 py-1 text-xs font-semibold text-[#a44c2d]">Previous name</span>
                               )}
                               {result.match_type === 'alias' && (
-                                <span className="px-3 py-1 text-xs font-semibold text-white bg-gradient-to-r from-orange-500 to-orange-600 rounded-full shadow-sm whitespace-nowrap">Alias Name</span>
+                                <span className="whitespace-nowrap rounded-full bg-[#fff2d9] px-2.5 py-1 text-xs font-semibold text-[#8b5a10]">Alias</span>
                               )}
                             </div>
                             <div className="space-y-2.5 mb-4">
                               {result.current_name && result.current_name !== result.name && (
                                 <div className="flex items-center gap-2.5">
                                   <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">New Name:</span>
-                                  <span className="px-2.5 py-1 text-xs font-semibold text-white bg-gradient-to-r from-green-500 to-green-600 rounded-md">{result.current_name}</span>
+                                  <span className="rounded-md bg-[#e2f4eb] px-2.5 py-1 text-xs font-semibold text-[#0c6b4a]">{result.current_name}</span>
                                 </div>
                               )}
                               {result.old_name && result.old_name !== result.name && result.old_name !== result.current_name && (
                                 <div className="flex items-center gap-2.5">
                                   <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Old Name:</span>
-                                  <span className="px-2.5 py-1 text-xs font-semibold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-md">{result.old_name}</span>
+                                  <span className="rounded-md bg-[#fff0e9] px-2.5 py-1 text-xs font-semibold text-[#a44c2d]">{result.old_name}</span>
                                 </div>
                               )}
                             </div>
@@ -1018,7 +948,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2.5">Aliases</p>
                                 <div className="flex flex-wrap gap-2">
                                   {result.alias_names.map((alias, idx) => (
-                                    <span key={idx} className="px-2.5 py-1 text-xs font-semibold text-white bg-gradient-to-r from-orange-500 to-orange-600 rounded-md shadow-sm">
+                                    <span key={idx} className="rounded-md bg-[#fff2d9] px-2.5 py-1 text-xs font-semibold text-[#8b5a10]">
                                       {alias}
                                     </span>
                                   ))}
@@ -1027,7 +957,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             )}
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0b2942] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#123b5b]"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -1043,7 +973,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`correction_of_date_of_birth-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
+                        <div key={`correction_of_date_of_birth-${result.id}`} className="group overflow-hidden rounded-md border border-[#dce5e9] bg-white transition-colors hover:border-[#a9c7bc] hover:shadow-[0_8px_24px_rgba(10,35,53,0.08)]">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.person_name || result.name}</h3>
@@ -1064,7 +994,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             </div>
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0b2942] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#123b5b]"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -1080,7 +1010,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`correction_of_place_of_birth-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
+                        <div key={`correction_of_place_of_birth-${result.id}`} className="group overflow-hidden rounded-md border border-[#dce5e9] bg-white transition-colors hover:border-[#a9c7bc] hover:shadow-[0_8px_24px_rgba(10,35,53,0.08)]">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.person_name || result.name}</h3>
@@ -1101,7 +1031,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             </div>
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0b2942] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#123b5b]"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -1117,7 +1047,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`marriage_officer-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
+                        <div key={`marriage_officer-${result.id}`} className="group overflow-hidden rounded-md border border-[#dce5e9] bg-white transition-colors hover:border-[#a9c7bc] hover:shadow-[0_8px_24px_rgba(10,35,53,0.08)]">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.officer_name || result.name}</h3>
@@ -1144,7 +1074,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             </div>
                             <button
                               onClick={() => handleViewReport(result)}
-                              className="mt-5 w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                              className="mt-5 flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0b2942] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#123b5b]"
                             >
                               <Eye className="w-4 h-4" />
                               View Report
@@ -1160,7 +1090,7 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                       {currentResults.map((result) => (
-                        <div key={`judgements_rulings-${result.id}`} className="group bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-[#D4E1EA] transition-all duration-300 overflow-hidden">
+                        <div key={`judgements_rulings-${result.id}`} className="group overflow-hidden rounded-md border border-[#dce5e9] bg-white transition-colors hover:border-[#a9c7bc] hover:shadow-[0_8px_24px_rgba(10,35,53,0.08)]">
                           <div className="p-5">
                             <div className="mb-4">
                               <h3 className="text-lg font-bold text-slate-900 leading-tight">{result.title || 'N/A'}</h3>
@@ -1193,14 +1123,14 @@ const PersonSearchPage = ({ userInfo, onNavigate, onLogout }) => {
                             <div className="mt-5 flex flex-col gap-3">
                               <button
                                 onClick={() => handleViewSummary(result)}
-                                className="w-full px-4 py-2.5 bg-[#E6ECF3] text-[#022658] text-sm font-semibold rounded-lg hover:bg-[#D9E3F0] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
+                                className="flex h-10 w-full items-center justify-center gap-2 rounded-md border border-[#c7d3d8] bg-white px-4 text-sm font-semibold text-[#405867] transition-colors hover:bg-[#f2f6f6]"
                               >
                                 <FileText className="w-4 h-4" />
                                 View Summary
                               </button>
                               <button
                                 onClick={() => handleViewCase(result)}
-                                className="w-full px-4 py-2.5 bg-[#022658] text-white text-sm font-semibold rounded-lg hover:bg-[#033a7a] active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                                className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-[#0b2942] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#123b5b]"
                               >
                                 <Eye className="w-4 h-4" />
                                 View Case

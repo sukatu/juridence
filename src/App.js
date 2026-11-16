@@ -81,7 +81,7 @@ function AppContent() {
   const shouldShowHeaderFooter = !isHomePage && !onboardingPages.includes(location.pathname) && !fullScreenPages.includes(location.pathname) && !isAdminRoute && !isRegistrarRoute && !isCorporateRoute;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+    <div className="juridence-app min-h-screen bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-slate-900 dark:text-slate-100">
       {shouldShowHeaderFooter && <Header />}
       <main>
             <Routes>

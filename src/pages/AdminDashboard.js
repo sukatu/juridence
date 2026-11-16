@@ -96,6 +96,7 @@ import AdminDashboardOverview from '../components/AdminDashboardOverview';
 import CaseProfilePage from '../components/admin/CaseProfilePage';
 import RegistrarCaseDetailsPage from '../components/RegistrarCaseDetailsPage';
 import LogoutConfirmationModal from '../components/admin/LogoutConfirmationModal';
+import DashboardSearchHome from '../components/admin/DashboardSearchHome';
 import { apiGet } from '../utils/api';
 
 ChartJS.register(
@@ -112,7 +113,7 @@ ChartJS.register(
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('dashboard-search');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -459,6 +460,8 @@ const AdminDashboard = () => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case 'dashboard-search':
+        return <DashboardSearchHome userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'overview':
         return <AdminDashboardOverview stats={stats} userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'profile':
@@ -484,7 +487,7 @@ const AdminDashboard = () => {
       case 'employees':
         return <EmployeeManagement />;
       case 'gazette':
-        return <GazetteManagement />;
+        return <GazetteManagement userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'gazette-upload':
         return <GazetteUploadPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'gazette-approval':
@@ -530,7 +533,7 @@ const AdminDashboard = () => {
       case 'settings':
         return <SystemSettingsPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       default:
-        return <AdminDashboardOverview stats={stats} userInfo={userInfo} />;
+        return <DashboardSearchHome userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
     }
   };
 
@@ -564,7 +567,8 @@ const AdminDashboard = () => {
         {/* Mobile menu button */}
         <button
           onClick={() => setIsSidebarOpen(true)}
-          className="lg:hidden fixed top-4 left-4 z-30 p-2 bg-white rounded-md shadow-lg hover:bg-slate-100"
+          className="fixed left-3.5 top-3.5 z-40 rounded-md border border-[#dce5e9] bg-white p-2 shadow-sm hover:bg-[#f2f6f6] lg:hidden"
+          aria-label="Open navigation"
         >
           <Menu className="h-5 w-5" />
         </button>

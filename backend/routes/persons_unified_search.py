@@ -75,8 +75,8 @@ async def unified_persons_search(
         search_lower = query.lower().strip()
         words = search_lower.split()
         
-        # If multiple words, search for exact phrase only
-        # If single word, search for that word with word boundaries (whole word match)
+        # If multiple words, search for exact phrase
+        # If single word, prefer whole-word but also allow partial matches
         if len(words) > 1:
             # Multiple words: search for exact phrase "Thomas Appiah"
             search_terms = [f"%{search_lower}%"]
@@ -96,7 +96,10 @@ async def unified_persons_search(
         # Search in new_name (current name)
         if use_regex:
             word = search_terms[0]
-            new_name_match = func.lower(ChangeOfName.new_name).op('~*')(f'\\y{word}\\y')
+            new_name_match = or_(
+                func.lower(ChangeOfName.new_name).op('~*')(f'\\y{word}\\y'),
+                func.lower(ChangeOfName.new_name).like(f"%{search_lower}%")
+            )
         else:
             new_name_conditions = [func.lower(ChangeOfName.new_name).like(term) for term in search_terms]
             new_name_match = or_(*new_name_conditions) if new_name_conditions else None
@@ -104,7 +107,10 @@ async def unified_persons_search(
         # Search in old_name
         if use_regex:
             word = search_terms[0]
-            old_name_match = func.lower(ChangeOfName.old_name).op('~*')(f'\\y{word}\\y')
+            old_name_match = or_(
+                func.lower(ChangeOfName.old_name).op('~*')(f'\\y{word}\\y'),
+                func.lower(ChangeOfName.old_name).like(f"%{search_lower}%")
+            )
         else:
             old_name_conditions = [func.lower(ChangeOfName.old_name).like(term) for term in search_terms]
             old_name_match = or_(*old_name_conditions) if old_name_conditions else None
@@ -115,7 +121,10 @@ async def unified_persons_search(
             word = search_terms[0]
             alias_match = and_(
                 ChangeOfName.alias_name.isnot(None),
-                func.lower(ChangeOfName.alias_name).op('~*')(f'\\y{word}\\y')
+                or_(
+                    func.lower(ChangeOfName.alias_name).op('~*')(f'\\y{word}\\y'),
+                    func.lower(ChangeOfName.alias_name).like(f"%{search_lower}%")
+                )
             )
         else:
             alias_conditions = [func.lower(ChangeOfName.alias_name).like(term) for term in search_terms]
@@ -205,12 +214,24 @@ async def unified_persons_search(
         if use_regex:
             word = search_terms[0]
             place_of_birth_query = db.query(CorrectionOfPlaceOfBirth).filter(
-                func.lower(CorrectionOfPlaceOfBirth.person_name).op('~*')(f'\\y{word}\\y')
+                or_(
+                    func.lower(CorrectionOfPlaceOfBirth.person_name).op('~*')(f'\\y{word}\\y'),
+                    func.lower(CorrectionOfPlaceOfBirth.person_name).like(f"%{search_lower}%"),
+                    func.lower(CorrectionOfPlaceOfBirth.alias).op('~*')(f'\\y{word}\\y'),
+                    func.lower(CorrectionOfPlaceOfBirth.alias).like(f"%{search_lower}%")
+                )
             )
         else:
-            place_of_birth_conditions = [CorrectionOfPlaceOfBirth.person_name.ilike(term) for term in search_terms]
+            place_of_birth_conditions = [
+                CorrectionOfPlaceOfBirth.person_name.ilike(term)
+                for term in search_terms
+            ]
+            place_of_birth_alias_conditions = [
+                CorrectionOfPlaceOfBirth.alias.ilike(term)
+                for term in search_terms
+            ]
             place_of_birth_query = db.query(CorrectionOfPlaceOfBirth).filter(
-                or_(*place_of_birth_conditions) if place_of_birth_conditions else None
+                or_(*(place_of_birth_conditions + place_of_birth_alias_conditions)) if (place_of_birth_conditions or place_of_birth_alias_conditions) else None
             )
         place_of_birth_results = place_of_birth_query.all()
         for entry in place_of_birth_results:
@@ -232,12 +253,24 @@ async def unified_persons_search(
         if use_regex:
             word = search_terms[0]
             date_of_birth_query = db.query(CorrectionOfDateOfBirth).filter(
-                func.lower(CorrectionOfDateOfBirth.person_name).op('~*')(f'\\y{word}\\y')
+                or_(
+                    func.lower(CorrectionOfDateOfBirth.person_name).op('~*')(f'\\y{word}\\y'),
+                    func.lower(CorrectionOfDateOfBirth.person_name).like(f"%{search_lower}%"),
+                    func.lower(CorrectionOfDateOfBirth.alias).op('~*')(f'\\y{word}\\y'),
+                    func.lower(CorrectionOfDateOfBirth.alias).like(f"%{search_lower}%")
+                )
             )
         else:
-            date_of_birth_conditions = [CorrectionOfDateOfBirth.person_name.ilike(term) for term in search_terms]
+            date_of_birth_conditions = [
+                CorrectionOfDateOfBirth.person_name.ilike(term)
+                for term in search_terms
+            ]
+            date_of_birth_alias_conditions = [
+                CorrectionOfDateOfBirth.alias.ilike(term)
+                for term in search_terms
+            ]
             date_of_birth_query = db.query(CorrectionOfDateOfBirth).filter(
-                or_(*date_of_birth_conditions) if date_of_birth_conditions else None
+                or_(*(date_of_birth_conditions + date_of_birth_alias_conditions)) if (date_of_birth_conditions or date_of_birth_alias_conditions) else None
             )
         date_of_birth_results = date_of_birth_query.all()
         for entry in date_of_birth_results:
@@ -256,16 +289,18 @@ async def unified_persons_search(
             })
         
         # 4. Search marriage_officers
-        if use_regex:
-            word = search_terms[0]
-            marriage_officer_query = db.query(MarriageOfficer).filter(
-                func.lower(MarriageOfficer.officer_name).op('~*')(f'\\y{word}\\y')
+        # Use ILIKE for maximum compatibility; coalesce to empty string for NULL-safe partial match
+        _pat = f"%{search_lower}%"
+        marriage_officer_query = db.query(MarriageOfficer).filter(
+            or_(
+                func.coalesce(MarriageOfficer.officer_name, "").ilike(_pat),
+                func.coalesce(MarriageOfficer.church, "").ilike(_pat),
+                func.coalesce(MarriageOfficer.location, "").ilike(_pat),
+                func.coalesce(MarriageOfficer.region, "").ilike(_pat),
+                func.coalesce(MarriageOfficer.appointing_authority, "").ilike(_pat),
+                func.coalesce(MarriageOfficer.appointing_authority_title, "").ilike(_pat),
             )
-        else:
-            marriage_officer_conditions = [MarriageOfficer.officer_name.ilike(term) for term in search_terms]
-            marriage_officer_query = db.query(MarriageOfficer).filter(
-                or_(*marriage_officer_conditions) if marriage_officer_conditions else None
-            )
+        )
         marriage_officer_results = marriage_officer_query.all()
         for entry in marriage_officer_results:
             all_results.append({

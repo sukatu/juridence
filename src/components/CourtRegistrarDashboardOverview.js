@@ -1,503 +1,143 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, ChevronDown, Bell, MoreVertical, X } from 'lucide-react';
+import React from 'react';
+import {
+  ArrowRight,
+  Bell,
+  CalendarDays,
+  ClipboardList,
+  FileText,
+  Upload,
+} from 'lucide-react';
 import RegistrarHeader from './RegistrarHeader';
+import { Badge, Button, PageHeader, Panel } from './ui';
+
+const gazetteData = [
+  { id: 'GZ-1093', title: 'Contract ruling notice', dateUploaded: 'Oct 28', linkedCases: 'CM/0245/2023', status: 'Approved', variant: 'success' },
+  { id: 'GZ-1079', title: 'Revocation notice', dateUploaded: 'Oct 24', linkedCases: '-', status: 'Pending', variant: 'warning' },
+  { id: 'GZ-1068', title: 'Contract ruling notice', dateUploaded: 'Oct 20', linkedCases: 'CM/0245/2023', status: 'Approved', variant: 'success' },
+];
+
+const pendingTasks = [
+  { task: 'Review case CM/0245/2023', due: 'Dec 1' },
+  { task: 'Upload cause list for Dec 4', due: 'Dec 2' },
+];
+
+const caseManagement = [
+  { caseNo: 'CM/0245/2023', parties: 'JKL Ventures Ltd vs Meridian Properties', lastUpdated: 'Oct 30', nextHearing: 'Nov 3', status: 'Ongoing', variant: 'info' },
+  { caseNo: 'CM/0290/2023', parties: 'Ama Osei vs Tano Holdings', lastUpdated: 'Oct 27', nextHearing: '-', status: 'Closed', variant: 'success' },
+  { caseNo: 'CM/0312/2023', parties: 'Kwame Ltd vs Eagle Group', lastUpdated: 'Oct 29', nextHearing: 'Nov 4', status: 'Pending', variant: 'warning' },
+];
+
+const alerts = [
+  { title: 'New approval', message: 'Admin approved Gazette GZ-1079', time: 'Just now' },
+  { title: 'Hearing alert', message: 'The Nov 3 cause list has been published', time: '3 hours ago' },
+];
 
 const CourtRegistrarDashboardOverview = ({ userInfo, onNavigate, onLogout }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState('All');
-  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-  const filterDropdownRef = useRef(null);
-
-  // Handle click outside to close dropdown
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target)) {
-        setShowFilterDropdown(false);
-      }
-    };
-
-    if (showFilterDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showFilterDropdown]);
-
-  // Use userInfo from props or localStorage
   const displayUserInfo = userInfo || JSON.parse(localStorage.getItem('userData') || '{}');
-
-  // Sample data
-  const quickActions = [
-    {
-      title: 'Total Cases Managed',
-      value: '128',
-      icon: '📋'
-    },
-    {
-      title: 'Upcoming Hearings (This Week)',
-      value: '12',
-      icon: '📅'
-    },
-    {
-      title: 'Gazette Notices Uploaded (This Week)',
-      value: '8',
-      icon: '📰'
-    }
-  ];
-
-  const gazetteData = [
-    {
-      id: 'GZ-1093',
-      title: 'Contract Ruling Notice',
-      dateUploaded: 'Oct 28',
-      linkedCases: 'CM/0245/2023',
-      status: 'Approved',
-      statusColor: 'rgba(48.52, 171.63, 64.94, 0.10)',
-      textColor: '#10B981',
-      opacity: 1
-    },
-    {
-      id: 'GZ-1079',
-      title: 'Revocation Notice',
-      dateUploaded: 'Oct 24',
-      linkedCases: '-',
-      status: 'Pending',
-      statusColor: 'rgba(243, 111, 38, 0.10)',
-      textColor: '#F59E0B',
-      opacity: 0.80
-    },
-    {
-      id: 'GZ-1093',
-      title: 'Contract Ruling Notice',
-      dateUploaded: 'Oct 20',
-      linkedCases: 'CM/0245/2023',
-      status: 'Approved',
-      statusColor: 'rgba(48.52, 171.63, 64.94, 0.10)',
-      textColor: '#10B981',
-      opacity: 1
-    }
-  ];
-
-  const pendingTasks = [
-    {
-      task: 'Review Case #CM/0245/2023',
-      due: 'Dec. 1'
-    },
-    {
-      task: 'Upload Cause List for Dec. 4',
-      due: 'Dec. 2'
-    }
-  ];
-
-  const caseManagement = [
-    {
-      caseNo: 'CM/0245/2023',
-      parties: 'JKL Ventures Ltd vs Meridian Properties',
-      lastUpdated: 'Oct 30',
-      nextHearing: 'Nov 3',
-      status: 'Ongoing',
-      statusColor: 'rgba(48.52, 171.63, 147.01, 0.10)',
-      textColor: '#3B82F6',
-      opacity: 1
-    },
-    {
-      caseNo: 'CM/0290/2023',
-      parties: 'Ama Osei vs Tano Holdings',
-      lastUpdated: 'Oct 27',
-      nextHearing: '-',
-      status: 'Closed',
-      statusColor: 'rgba(48.52, 171.63, 64.94, 0.10)',
-      textColor: '#10B981',
-      opacity: 0.80
-    },
-    {
-      caseNo: 'CM/0312/2023',
-      parties: 'Kwame Ltd vs Eagle Group',
-      lastUpdated: 'Oct 29',
-      nextHearing: 'Nov 4',
-      status: 'Pending',
-      statusColor: 'rgba(243, 111, 38, 0.10)',
-      textColor: '#F59E0B',
-      opacity: 1
-    }
-  ];
-
-  const alerts = [
-    {
-      icon: '🔔',
-      title: 'New approval',
-      message: 'Admin approved Gazette #GZ-1079',
-      time: 'Just now'
-    },
-    {
-      icon: '📢',
-      title: 'Hearing alert',
-      message: 'Upcoming Cause List for Nov 3 has been published',
-      time: '3 hours ago'
-    }
+  const courtName = displayUserInfo?.court_name || displayUserInfo?.court_type || 'Court registry';
+  const metrics = [
+    { label: 'Cases managed', value: '128', context: 'total records', icon: FileText, destination: 'case-profile' },
+    { label: 'Upcoming hearings', value: '12', context: 'this week', icon: CalendarDays, destination: 'cause-list' },
+    { label: 'Gazette notices', value: '8', context: 'uploaded this week', icon: Upload, destination: 'pending-tasks' },
   ];
 
   return (
-    <div className="flex-1 bg-[#F7F8FA] pr-6 rounded-lg">
-      <div className="flex items-start gap-6">
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col bg-[#F7F8FA] pt-2 pb-[52px] gap-4">
-          {/* Header */}
-          <RegistrarHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} />
-          
-          {/* Page Title Section */}
-          <div className="px-1.5 pb-2 border-b border-[#D4E1EA]">
-            <div className="flex flex-col items-start w-[263px] gap-1">
-              <span className="text-[#050F1C] text-xl font-medium">
-                High Court (Commercial),
-              </span>
-              <span className="text-[#050F1C] text-base font-normal opacity-75">
-                Track all your activities here.
-              </span>
-            </div>
+    <div className="ui-page">
+      <RegistrarHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Overview" />
+      <div className="ui-page-content">
+        <PageHeader
+          eyebrow="Court registry"
+          title={courtName}
+          description="Track court records, hearing schedules, gazette notices and pending registry work."
+          actions={<Button icon={<FileText size={16} />} onClick={() => onNavigate?.('cause-list')}>Open cause list</Button>}
+        />
+
+        <section aria-labelledby="registry-activity-heading">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 id="registry-activity-heading" className="text-sm font-bold uppercase tracking-[0.1em] text-[#526773]">Registry activity</h2>
+            <p className="hidden text-xs text-[#829099] sm:block">Current operational totals</p>
           </div>
-
-          {/* Main Content Area */}
-          <div className="flex flex-col self-stretch bg-white py-4 px-4 gap-8 rounded-lg">
-            {/* Quick Actions */}
-            <div className="flex flex-col items-start self-stretch gap-2">
-              <span className="text-[#050F1C] text-lg font-normal">
-                Quick actions
-              </span>
-              <div className="flex items-start self-stretch gap-4">
-                {quickActions.map((action, index) => (
-                  <div
-                    key={index}
-                    className="flex flex-col bg-white flex-1 p-4 gap-3 rounded-2xl h-[129px]"
-                    style={{ 
-                      boxShadow: '0px 2px 20px rgba(0, 0, 0, 0.06)',
-                      borderLeft: '1px solid #F59E0B',
-                      borderBottom: '1px solid #F59E0B'
-                    }}
-                  >
-                    <div className="flex justify-between items-start self-stretch">
-                      <div className="flex flex-col items-start gap-2">
-                        <span className="text-2xl">{action.icon}</span>
-                        <span className="text-[#050F1C] text-base font-normal text-center">
-                          {action.title}
-                        </span>
-                      </div>
-                      <div className="w-6 h-6 relative">
-                        <ChevronDown className="w-6 h-6 text-[#022658] rotate-90" />
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-start self-stretch gap-2">
-                      <div className="self-stretch h-px" style={{ outline: '1px #B1B9C6 solid', outlineOffset: '-0.5px' }}></div>
-                      <span className="text-[#050F1C] text-xl font-semibold" style={{ fontFamily: 'Roboto' }}>
-                        {action.value}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Gazette Tracking and Today's Alert + Pending Tasks */}
-            <div className="flex items-start self-stretch gap-6">
-              {/* Gazette Tracking */}
-              <div className="flex flex-col flex-1 gap-2">
-                <div className="flex justify-between items-center self-stretch">
-                  <span className="text-[#050F1C] text-lg font-normal">
-                    Gazette Tracking
-                  </span>
-                  <span className="text-[#022658] text-xs font-bold cursor-pointer hover:underline">
-                    See all
-                  </span>
-                </div>
-                <div className="flex flex-col self-stretch gap-1 rounded-[14px] border border-solid border-[#E5E8EC] overflow-hidden">
-                  {/* Header */}
-                  <div className="flex items-center self-stretch bg-[#F4F6F9] py-4 gap-3">
-                    <div className="w-[148px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Gazette ID
-                      </span>
-                    </div>
-                    <div className="w-[180px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Title
-                      </span>
-                    </div>
-                    <div className="w-[120px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Date Uploaded
-                      </span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Linked Cases
-                      </span>
-                    </div>
-                    <div className="w-[110px] px-2 flex justify-center">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Status
-                      </span>
-                    </div>
-                  </div>
-                  {/* Rows */}
-                  {gazetteData.map((item, index) => (
-                    <div 
-                      key={index} 
-                      className="flex items-center self-stretch py-3 gap-3"
-                      style={{ 
-                        borderBottom: index < gazetteData.length - 1 ? '0.40px solid #E5E8EC' : 'none',
-                        opacity: item.opacity
-                      }}
-                    >
-                      <div className="w-[148px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {item.id}
-                        </span>
-                      </div>
-                      <div className="w-[180px] px-2 flex-1">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {item.title}
-                        </span>
-                      </div>
-                      <div className="w-[120px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {item.dateUploaded}
-                        </span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {item.linkedCases}
-                        </span>
-                      </div>
-                      <div className="w-[110px] px-2 flex justify-center">
-                        <div 
-                          className="px-2 py-1 rounded-lg"
-                          style={{
-                            background: item.statusColor,
-                            width: '70px'
-                          }}
-                        >
-                          <span 
-                            className="text-xs font-medium"
-                            style={{ color: item.textColor }}
-                          >
-                            {item.status}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Today's Alert and Pending Tasks */}
-              <div className="flex flex-col gap-6" style={{ width: '380px' }}>
-                {/* Today at 10am Alert */}
-                <div 
-                  className="h-[58px] px-2 py-4 bg-[#3B82F6] rounded-lg flex items-center gap-3"
-                >
-                  <span className="text-white text-sm font-normal">
-                    Today at 10am:
-                  </span>
-                  <span className="text-white text-sm font-bold">
-                    JKL Ventures Ltd vs Meridian Properties
-                  </span>
-                </div>
-
-                {/* Pending Tasks */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex justify-between items-center self-stretch">
-                    <span className="text-[#050F1C] text-lg font-normal">
-                      Pending tasks
-                    </span>
-                    <span className="text-[#022658] text-xs font-bold cursor-pointer hover:underline">
-                      See all
-                    </span>
-                  </div>
-                  <div className="flex flex-col self-stretch gap-1 rounded-[14px] border border-solid border-[#E5E8EC] overflow-hidden">
-                    {/* Header */}
-                    <div className="flex items-center self-stretch bg-[#F4F6F9] py-4 gap-3">
-                      <div className="w-[210px] px-2">
-                        <span className="text-[#070810] text-sm font-bold">
-                          Task
-                        </span>
-                      </div>
-                      <div className="w-[100px] px-2">
-                        <span className="text-[#070810] text-sm font-bold">
-                          Due
-                        </span>
-                      </div>
-                      <div className="w-10 h-[35px]"></div>
-                    </div>
-                    {/* Rows */}
-                    {pendingTasks.map((task, index) => (
-                      <div 
-                        key={index} 
-                        className="flex items-center self-stretch py-3 gap-3"
-                        style={{ 
-                          borderBottom: index < pendingTasks.length - 1 ? '0.40px solid #E5E8EC' : 'none'
-                        }}
-                      >
-                        <div className="w-[210px] px-2 flex-1">
-                          <span className="text-[#070810] text-sm font-normal">
-                            {task.task}
-                          </span>
-                        </div>
-                        <div className="w-[100px] px-2">
-                          <span className="text-[#070810] text-sm font-normal">
-                            {task.due}
-                          </span>
-                        </div>
-                        <div className="w-10 px-2 flex items-center justify-center">
-                          <MoreVertical className="w-4 h-4 text-[#050F1C] rotate-90" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Case Management Snapshot and Alerts */}
-            <div className="flex items-start self-stretch gap-6">
-              {/* Case Management Snapshot */}
-              <div className="flex flex-col flex-1 gap-2">
-                <div className="flex justify-between items-center self-stretch">
-                  <span className="text-[#050F1C] text-lg font-normal">
-                    Case Management snapshot
-                  </span>
-                  <span className="text-[#022658] text-xs font-bold cursor-pointer hover:underline">
-                    See all
-                  </span>
-                </div>
-                <div className="flex flex-col self-stretch gap-1 rounded-[14px] border border-solid border-[#E5E8EC] overflow-hidden">
-                  {/* Header */}
-                  <div className="flex items-center self-stretch bg-[#F4F6F9] py-4 gap-3">
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Case No.
-                      </span>
-                    </div>
-                    <div className="w-[180px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Parties
-                      </span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Last updated
-                      </span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Next hearing
-                      </span>
-                    </div>
-                    <div className="w-[110px] px-2 flex justify-center">
-                      <span className="text-[#070810] text-sm font-bold">
-                        Status
-                      </span>
-                    </div>
-                    <div className="w-10 h-[35px]"></div>
-                  </div>
-                  {/* Rows */}
-                  {caseManagement.map((caseItem, index) => (
-                    <div 
-                      key={index} 
-                      className="flex items-center self-stretch py-3 gap-3"
-                      style={{ 
-                        borderBottom: index < caseManagement.length - 1 ? '0.40px solid #E5E8EC' : 'none',
-                        opacity: caseItem.opacity
-                      }}
-                    >
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {caseItem.caseNo}
-                        </span>
-                      </div>
-                      <div className="w-[180px] px-2 flex-1">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {caseItem.parties}
-                        </span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {caseItem.lastUpdated}
-                        </span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">
-                          {caseItem.nextHearing}
-                        </span>
-                      </div>
-                      <div className="w-[110px] px-2 flex justify-center">
-                        <div 
-                          className="px-2 py-1 rounded-lg"
-                          style={{
-                            background: caseItem.statusColor,
-                            width: '70px'
-                          }}
-                        >
-                          <span 
-                            className="text-xs font-medium"
-                            style={{ color: caseItem.textColor }}
-                          >
-                            {caseItem.status}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="w-10 px-2 flex items-center justify-center">
-                        <MoreVertical className="w-4 h-4 text-[#050F1C] rotate-90" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Alerts */}
-              <div className="flex flex-col gap-2" style={{ width: '358px' }}>
-                <div className="flex justify-between items-center self-stretch">
-                  <span className="text-[#050F1C] text-lg font-normal">
-                    Alerts
-                  </span>
-                  <span className="text-[#022658] text-xs font-bold cursor-pointer hover:underline">
-                    See all
-                  </span>
-                </div>
-                <div 
-                  className="flex flex-col self-stretch bg-white p-4 gap-10 rounded-3xl border border-solid border-[#D4E1EA]"
-                  style={{ minHeight: '313px' }}
-                >
-                  <div className="flex flex-col items-start self-stretch gap-6">
-                    {alerts.map((alert, index) => (
-                      <div 
-                        key={index} 
-                        className={`flex items-start self-stretch gap-3 ${index === 0 ? 'pb-4 border-b border-[#D4E1EA]' : ''}`}
-                      >
-                        <div className="p-2 bg-[#F7F8FA] rounded-lg">
-                          <span className="text-base">{alert.icon}</span>
-                        </div>
-                        <div className="flex flex-col items-start flex-1 gap-3">
-                          <div className="flex flex-col items-start self-stretch gap-2">
-                            <span className="text-[#050F1C] text-base font-medium">
-                              {alert.title}
-                            </span>
-                            <span className="text-[#525866] text-sm font-normal">
-                              {alert.message}
-                            </span>
-                          </div>
-                          <span className="text-[#525866] text-xs font-normal">
-                            {alert.time}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {metrics.map(({ label, value, context, icon: Icon, destination }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onNavigate?.(destination)}
+                className="group flex min-h-[132px] items-start justify-between border border-[#dce5e9] bg-white p-5 text-left shadow-[0_3px_12px_rgba(10,35,53,0.04)] transition-colors hover:border-[#a9c7bc]"
+              >
+                <span><span className="block text-sm font-medium text-[#687983]">{label}</span><span className="mt-4 block text-3xl font-semibold text-[#102f49]">{value}</span><span className="mt-1 block text-xs text-[#829099]">{context}</span></span>
+                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[#e2f4eb] text-[#0c6b4a]"><Icon size={20} /></span>
+              </button>
+            ))}
           </div>
+        </section>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+          <Panel
+            title="Gazette tracking"
+            description="Recent notices linked to registry matters"
+            actions={<Button variant="ghost" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" onClick={() => onNavigate?.('pending-tasks')}>View all</Button>}
+            bodyClassName="!p-0"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[690px] text-left text-sm">
+                <thead className="bg-[#f2f5f6]"><tr><th className="px-5 py-3.5">Gazette ID</th><th className="px-5 py-3.5">Title</th><th className="px-5 py-3.5">Uploaded</th><th className="px-5 py-3.5">Linked case</th><th className="px-5 py-3.5">Status</th></tr></thead>
+                <tbody className="divide-y divide-[#e3eaed]">
+                  {gazetteData.map((item) => (
+                    <tr key={item.id} className="hover:bg-[#f8fafa]"><td className="px-5 py-3.5 font-medium text-[#17334a]">{item.id}</td><td className="px-5 py-3.5 text-[#60717c]">{item.title}</td><td className="px-5 py-3.5 text-[#60717c]">{item.dateUploaded}</td><td className="px-5 py-3.5 text-[#60717c]">{item.linkedCases}</td><td className="px-5 py-3.5"><Badge variant={item.variant}>{item.status}</Badge></td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Pending tasks"
+            description="Work due from the registry"
+            actions={<Button variant="ghost" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" onClick={() => onNavigate?.('pending-tasks')}>View all</Button>}
+            bodyClassName="!p-0"
+          >
+            <div className="divide-y divide-[#e3eaed]">
+              {pendingTasks.map((item) => (
+                <button key={item.task} type="button" onClick={() => onNavigate?.('pending-tasks')} className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-[#f8fafa]">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#e7f0f8] text-[#245b8f]"><ClipboardList size={17} /></span>
+                  <span className="min-w-0 flex-1"><span className="block text-sm font-semibold text-[#17334a]">{item.task}</span><span className="mt-1 block text-xs text-[#7a8991]">Due {item.due}</span></span>
+                  <ArrowRight size={16} className="text-[#91a0a8]" />
+                </button>
+              ))}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+          <Panel
+            title="Case management"
+            description="Recently updated court matters"
+            actions={<Button variant="ghost" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" onClick={() => onNavigate?.('case-profile')}>View all</Button>}
+            bodyClassName="!p-0"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="bg-[#f2f5f6]"><tr><th className="px-5 py-3.5">Case number</th><th className="px-5 py-3.5">Parties</th><th className="px-5 py-3.5">Last updated</th><th className="px-5 py-3.5">Next hearing</th><th className="px-5 py-3.5">Status</th></tr></thead>
+                <tbody className="divide-y divide-[#e3eaed]">
+                  {caseManagement.map((item) => (
+                    <tr key={item.caseNo} className="hover:bg-[#f8fafa]"><td className="px-5 py-3.5 font-medium text-[#17334a]">{item.caseNo}</td><td className="max-w-[300px] px-5 py-3.5 text-[#405867]">{item.parties}</td><td className="px-5 py-3.5 text-[#60717c]">{item.lastUpdated}</td><td className="px-5 py-3.5 text-[#60717c]">{item.nextHearing}</td><td className="px-5 py-3.5"><Badge variant={item.variant}>{item.status}</Badge></td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <Panel title="Alerts" description="Recent registry notifications" bodyClassName="!p-0">
+            <div className="divide-y divide-[#e3eaed]">
+              {alerts.map((alert) => (
+                <div key={alert.title} className="flex gap-3 px-5 py-4">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#fff2d9] text-[#9b6512]"><Bell size={17} /></span>
+                  <div><p className="text-sm font-semibold text-[#17334a]">{alert.title}</p><p className="mt-1 text-xs leading-5 text-[#687983]">{alert.message}</p><p className="mt-2 text-[11px] text-[#8a989f]">{alert.time}</p></div>
+                </div>
+              ))}
+            </div>
+          </Panel>
         </div>
       </div>
     </div>

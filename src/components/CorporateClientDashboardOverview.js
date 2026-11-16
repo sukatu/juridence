@@ -1,399 +1,153 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Bell, ChevronRight, FileText, Eye, AlertTriangle, MoreVertical } from 'lucide-react';
+import React from 'react';
+import {
+  ArrowRight,
+  Bell,
+  Eye,
+  FileText,
+  Search,
+  ShieldAlert,
+} from 'lucide-react';
 import CorporateClientHeader from './CorporateClientHeader';
+import { Badge, Button, PageHeader, Panel } from './ui';
+
+const recentSearches = [
+  { name: 'JKL Ventures Ltd', type: 'Company', status: '2 cases', lastViewed: 'Today' },
+  { name: 'Ama Osei', type: 'Person', status: '1 case', lastViewed: '2 days ago' },
+  { name: 'BlueRock Mining Ltd', type: 'Company', status: 'No cases', lastViewed: 'Last week' },
+  { name: 'Kofi Mensah', type: 'Person', status: 'No cases', lastViewed: 'Last week' },
+];
+
+const watchlistItems = [
+  { name: 'Meridian Properties', activity: '1 new case', riskScore: '58/100', variant: 'warning' },
+  { name: 'Alpha Trade Ghana', activity: '2 gazette mentions', riskScore: '40/100', variant: 'success' },
+  { name: 'Kofi Mensah', activity: 'No new updates', riskScore: '72/100', variant: 'danger' },
+];
+
+const exportHistory = [
+  { name: 'JKL Ventures Ltd', type: 'Company risk report', format: 'PDF', date: 'Nov 3, 2025' },
+  { name: 'Vivian Osei vs Tano Holdings', type: 'Case report', format: 'PDF', date: 'Nov 1, 2025' },
+  { name: 'Kofi Mensah', type: 'Individual risk report', format: 'PDF', date: 'Oct 28, 2025' },
+];
+
+const alerts = [
+  { title: 'New case filed: Meridian Properties', detail: 'High Court, Accra · Defendant', time: 'Just now', variant: 'danger' },
+  { title: 'Gazette update: BlueRock Mining Ltd', detail: 'Change of warehouse location', time: '3 hours ago', variant: 'warning' },
+];
 
 const CorporateClientDashboardOverview = ({ userInfo, onNavigate, onLogout }) => {
-  const [openActionMenuIndex, setOpenActionMenuIndex] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const actionMenuRefs = useRef({});
-  
-  // Use userInfo from props or localStorage
   const displayUserInfo = userInfo || JSON.parse(localStorage.getItem('userData') || '{}');
-  const organizationName = displayUserInfo?.organization || 'Access Bank';
-
-  const recentSearches = [
-    { name: 'JKL Ventures Ltd', type: 'Company', status: '2 cases', lastViewed: 'Today' },
-    { name: 'Ama Osei', type: 'Person', status: '1 cases', lastViewed: '2 days ago' },
-    { name: 'BlueRock Mining Ltd', type: 'Company', status: 'No cases', lastViewed: 'Last week' },
-    { name: 'Kofi Mensah', type: 'Person', status: 'No cases', lastViewed: 'Last week' }
+  const organizationName = displayUserInfo?.organization || displayUserInfo?.entity_name || 'Corporate account';
+  const metrics = [
+    { label: 'Recent searches', value: '12', context: 'this week', icon: Search, destination: 'search' },
+    { label: 'Reports generated', value: '4', context: 'this month', icon: FileText, destination: 'requests-exports' },
+    { label: 'Watchlisted', value: '8', context: 'entities', icon: Eye, destination: 'watchlist' },
+    { label: 'Search requests', value: '3', context: 'pending', icon: ShieldAlert, destination: 'requests-exports' },
   ];
-
-  const watchlistItems = [
-    { name: 'Meridian Properties', activity: '1 new case', riskScore: '58/100', riskColor: '#DEBB0C' },
-    { name: 'Alpha Trade Ghana', activity: '2 gazette mentions', riskScore: '40/100', riskColor: '#10B981' },
-    { name: 'Kofi Mensah', activity: 'No new updates', riskScore: '72/100', riskColor: '#EF4444' }
-  ];
-
-  const exportHistory = [
-    { name: 'JKL Ventures Ltd', type: 'Company Risk Report', format: 'PDF', date: 'Nov 3, 2025' },
-    { name: 'Vivian Osei vs Tano Holdings', type: 'Case Report', format: 'PDF', date: 'Nov 1, 2025' },
-    { name: 'Kofi Mensah', type: 'Individual Risk Report', format: 'PDF', date: 'Oct 28, 2025' }
-  ];
-
-  // Handle click outside to close action menu
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (openActionMenuIndex !== null) {
-        const ref = actionMenuRefs.current[openActionMenuIndex];
-        if (ref && !ref.contains(event.target)) {
-          setOpenActionMenuIndex(null);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [openActionMenuIndex]);
-
-  const handleActionMenuClick = (index, e) => {
-    e.stopPropagation();
-    setOpenActionMenuIndex(openActionMenuIndex === index ? null : index);
-  };
-
-  const handleRemove = (item) => {
-    console.log('Remove item:', item);
-    setOpenActionMenuIndex(null);
-    // TODO: Implement remove functionality
-  };
-
-  const handleAssignInvestigation = (item) => {
-    console.log('Assign investigation for:', item);
-    setOpenActionMenuIndex(null);
-    // TODO: Implement assign investigation functionality
-  };
 
   return (
-    <div className="bg-[#F7F8FA] min-h-screen">
-      {/* Header */}
-      <CorporateClientHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} />
+    <div className="ui-page">
+      <CorporateClientHeader userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Overview" />
+      <div className="ui-page-content">
+        <PageHeader
+          eyebrow="Corporate intelligence"
+          title={organizationName}
+          description="Review due diligence activity, monitored entities, reports and requests."
+          actions={<Button icon={<Search size={16} />} onClick={() => onNavigate?.('search')}>Start a search</Button>}
+        />
 
-      {/* Main Content */}
-      <div className="px-6">
-        <div className="flex flex-col self-stretch bg-white py-4 px-4 gap-8 rounded-lg">
-            {/* Quick Actions */}
-            <div className="flex flex-col self-stretch gap-2">
-              <span className="text-[#050F1C] text-base font-medium">Quick actions</span>
-              <div className="flex items-center self-stretch gap-4">
-                {/* Recent Searches Card */}
-                <div className="w-[269px] h-[129px] p-4 bg-white rounded-2xl border-l border-b border-[#F59E0B] shadow-sm flex flex-col gap-3">
-                  <div className="flex justify-between items-start self-stretch">
-                    <div className="flex flex-col gap-2">
-                      <div className="w-6 h-6 relative">
-                        <div className="w-[18px] h-[18px] left-[3px] top-[3px] absolute border-2 border-[#022658] rounded"></div>
-                      </div>
-                      <span className="text-[#050F1C] text-base font-normal">Recent Searches</span>
-                    </div>
-                    <ChevronRight className="w-6 h-6 text-[#022658]" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="self-stretch h-px bg-[#B1B9C6]"></div>
-                    <span className="text-[#050F1C] text-xl font-semibold">12 this week</span>
-                  </div>
-                </div>
-
-                {/* Reports Generated Card */}
-                <div className="w-[269px] h-[129px] p-4 bg-white rounded-2xl border-l border-b border-[#F59E0B] shadow-sm flex flex-col gap-3">
-                  <div className="flex justify-between items-start self-stretch">
-                    <div className="flex flex-col gap-2">
-                      <div className="w-6 h-6 relative">
-                        <div className="w-[19px] h-[19px] left-[2.50px] top-[2.50px] absolute bg-white border-2 border-[#022658] rounded"></div>
-                        <div className="w-[2.50px] h-[2.50px] left-[7px] top-[5.75px] absolute bg-[#022658] rounded-full"></div>
-                        <div className="w-[2.50px] h-[2.50px] left-[7px] top-[15.75px] absolute bg-[#022658] rounded-full"></div>
-                      </div>
-                      <span className="text-[#050F1C] text-base font-normal">Reports Generated</span>
-                    </div>
-                    <ChevronRight className="w-6 h-6 text-[#022658]" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="self-stretch h-px bg-[#B1B9C6]"></div>
-                    <span className="text-[#050F1C] text-xl font-semibold">4 this month</span>
-                  </div>
-                </div>
-
-                {/* Watchlisted Card */}
-                <div className="w-[269px] h-[129px] p-4 bg-white rounded-2xl border-l border-b border-[#F59E0B] shadow-sm flex flex-col gap-3">
-                  <div className="flex justify-between items-start self-stretch">
-                    <div className="flex flex-col gap-2">
-                      <Eye className="w-6 h-6 text-[#022658]" />
-                      <span className="text-[#050F1C] text-base font-normal">Watchlisted</span>
-                    </div>
-                    <ChevronRight className="w-6 h-6 text-[#022658]" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="self-stretch h-px bg-[#B1B9C6]"></div>
-                    <span className="text-[#050F1C] text-xl font-semibold">8 entities</span>
-                  </div>
-                </div>
-
-                {/* Search Requests Card */}
-                <div className="w-[269px] h-[129px] p-4 bg-white rounded-2xl border-l border-b border-[#F59E0B] shadow-sm flex flex-col gap-3">
-                  <div className="flex justify-between items-start self-stretch">
-                    <div className="flex flex-col gap-1.5">
-                      <FileText className="w-6 h-6 text-[#022658]" />
-                      <span className="text-[#050F1C] text-base font-normal">Search Requests</span>
-                    </div>
-                    <ChevronRight className="w-6 h-6 text-[#022658]" />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="self-stretch h-px bg-[#B1B9C6]"></div>
-                    <span className="text-[#050F1C] text-xl font-semibold">3 pending requests</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Recent Searches and Watchlist */}
-            <div className="flex items-start self-stretch gap-6">
-              {/* Recent Searches Table */}
-              <div className="flex-1 flex flex-col gap-2">
-                <div className="flex justify-between items-center self-stretch">
-                  <span className="text-[#050F1C] text-base font-medium">Recent searches</span>
-                  <button className="text-[#022658] text-xs font-bold hover:opacity-70">See all</button>
-                </div>
-                <div className="flex-1 overflow-hidden rounded-[14px] border border-[#E5E8EC] flex flex-col">
-                  {/* Table Header */}
-                  <div className="flex items-center self-stretch bg-[#F4F6F9] py-4 gap-3">
-                    <div className="w-[260px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Entity Name</span>
-                    </div>
-                    <div className="w-[180px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Type</span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Status</span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Last Viewed</span>
-                    </div>
-                  </div>
-
-                  {/* Table Rows */}
-                  {recentSearches.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center self-stretch py-3 gap-3"
-                      style={{
-                        borderBottom: index < recentSearches.length - 1 ? '0.40px solid #E5E8EC' : 'none'
-                      }}
-                    >
-                      <div className="w-[260px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">{item.name}</span>
-                      </div>
-                      <div className="w-[180px] px-2 flex-1">
-                        <span className="text-[#070810] text-sm font-normal">{item.type}</span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">{item.status}</span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">{item.lastViewed}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Top 3 Monitored on Watchlist */}
-              <div className="w-[380px] flex flex-col gap-2">
-                <div className="flex justify-between items-center self-stretch">
-                  <span className="text-[#050F1C] text-base font-medium">Top 3 monitored on Watchlist</span>
-                  <button className="text-[#022658] text-xs font-bold hover:opacity-70">See all</button>
-                </div>
-                <div className="flex-1 overflow-hidden rounded-[14px] border border-[#E5E8EC] flex flex-col">
-                  {/* Table Header */}
-                  <div className="flex justify-between items-center self-stretch bg-[#F4F6F9] py-4 px-2">
-                    <div className="w-[210px]">
-                      <span className="text-[#070810] text-sm font-bold">Entity / Activity</span>
-                    </div>
-                    <div className="w-[100px]">
-                      <span className="text-[#070810] text-sm font-bold">Risk score</span>
-                    </div>
-                    <div className="w-[40px]"></div>
-                  </div>
-
-                  {/* Table Rows */}
-                  {watchlistItems.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex justify-between items-center self-stretch py-3 px-2 relative"
-                      style={{
-                        borderBottom: index < watchlistItems.length - 1 ? '0.40px solid #E5E8EC' : 'none'
-                      }}
-                    >
-                      <div className="w-[210px] flex flex-col gap-1.5">
-                        <span className="text-[#070810] text-sm font-normal">{item.name}</span>
-                        <span 
-                          className="text-xs font-normal"
-                          style={{ 
-                            color: item.activity.includes('case') ? '#EF4444' : 
-                                   item.activity.includes('gazette') ? '#F59E0B' : '#3B82F6'
-                          }}
-                        >
-                          {item.activity}
-                        </span>
-                      </div>
-                      <div className="w-[100px]">
-                        <span 
-                          className="text-sm font-bold"
-                          style={{ color: item.riskColor }}
-                        >
-                          {item.riskScore}
-                        </span>
-                      </div>
-                      <div className="w-[40px] flex justify-center relative">
-                        <button
-                          onClick={(e) => handleActionMenuClick(index, e)}
-                          className="p-1 rounded-full hover:bg-gray-100"
-                        >
-                          <MoreVertical className="w-4 h-4 text-[#050F1C] rotate-90" />
-                        </button>
-                        {openActionMenuIndex === index && (
-                          <div
-                            ref={el => actionMenuRefs.current[index] = el}
-                            className="absolute right-0 top-8 bg-white shadow-lg rounded-lg border border-[#E4E7EB] z-50 flex flex-col items-center p-4 gap-2"
-                            style={{ 
-                              boxShadow: '4px 4px 4px rgba(7, 8, 16, 0.10)', 
-                              width: 'auto',
-                              minWidth: '180px'
-                            }}
-                          >
-                            <button
-                              onClick={() => handleRemove(item)}
-                              className="w-full text-center text-[#050F1C] text-base font-normal leading-[22px] hover:bg-gray-50 py-1 rounded transition-colors"
-                              style={{ fontFamily: 'Roboto' }}
-                            >
-                              Remove
-                            </button>
-                            <div className="w-full h-px bg-[#D4E1EA]"></div>
-                            <button
-                              onClick={() => handleAssignInvestigation(item)}
-                              className="w-full text-center text-[#050F1C] text-base font-normal leading-[22px] hover:bg-gray-50 py-1 rounded transition-colors"
-                              style={{ fontFamily: 'Roboto' }}
-                            >
-                              Assign investigation
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Export History and Alerts */}
-            <div className="flex items-start self-stretch gap-6">
-              {/* Export History */}
-              <div className="w-[716px] flex flex-col gap-2">
-                <div className="flex justify-between items-center self-stretch">
-                  <span className="text-[#050F1C] text-base font-medium">Export history</span>
-                  <button className="text-[#022658] text-xs font-bold hover:opacity-70">See all</button>
-                </div>
-                <div className="flex-1 overflow-hidden rounded-[14px] border border-[#E5E8EC] flex flex-col">
-                  {/* Table Header */}
-                  <div className="flex items-center self-stretch bg-[#F4F6F9] py-4 gap-3">
-                    <div className="w-[260px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Entity Name</span>
-                    </div>
-                    <div className="w-[180px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Type</span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Format</span>
-                    </div>
-                    <div className="w-[110px] px-2">
-                      <span className="text-[#070810] text-sm font-bold">Date</span>
-                    </div>
-                  </div>
-
-                  {/* Table Rows */}
-                  {exportHistory.map((item, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center self-stretch py-3 gap-3"
-                      style={{
-                        borderBottom: index < exportHistory.length - 1 ? '0.40px solid #E5E8EC' : 'none'
-                      }}
-                    >
-                      <div className="w-[260px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">{item.name}</span>
-                      </div>
-                      <div className="w-[180px] px-2 flex-1">
-                        <span className="text-[#070810] text-sm font-normal">{item.type}</span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">{item.format}</span>
-                      </div>
-                      <div className="w-[110px] px-2">
-                        <span className="text-[#070810] text-sm font-normal">{item.date}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Alerts */}
-              <div className="w-[380px] flex flex-col gap-2">
-                <div className="flex justify-between items-center self-stretch h-5">
-                  <span className="text-[#050F1C] text-base font-medium">Alerts</span>
-                  <button className="text-[#022658] text-xs font-bold hover:opacity-70">See all</button>
-                </div>
-                <div className="flex-1 p-4 bg-white rounded-3xl border border-[#D4E1EA] flex flex-col gap-10">
-                  <div className="flex flex-col self-stretch gap-6">
-                    {/* Alert 1 */}
-                    <div className="flex flex-col self-stretch gap-4 pb-2 border-b border-[#D4E1EA]">
-                      <div className="flex items-start gap-3">
-                        <div className="p-2 bg-[#F7F8FA] rounded-lg">
-                          <AlertTriangle className="w-4 h-4 text-[#525866]" />
-                        </div>
-                        <div className="flex-1 flex flex-col gap-3">
-                          <div className="flex flex-col gap-2">
-                            <span className="text-[#050F1C] text-base font-medium">
-                              ⚠️ New Case Filed Against: Meridian Properties
-                            </span>
-                            <div>
-                              <span className="text-[#10B981] text-sm font-normal">Filed</span>
-                              <span className="text-[#525866] text-sm font-normal">: High Court, Accra – Nov 12, 2025</span>
-                            </div>
-                            <div>
-                              <span className="text-[#EF4444] text-sm font-normal">Role</span>
-                              <span className="text-[#525866] text-sm font-normal">: Defendant</span>
-                            </div>
-                          </div>
-                          <span className="text-[#525866] text-xs font-normal">Just now</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Alert 2 */}
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 bg-[#F7F8FA] rounded-lg">
-                        <FileText className="w-4 h-4 text-[#525866]" />
-                      </div>
-                      <div className="flex-1 flex flex-col gap-3">
-                        <div className="flex flex-col gap-2">
-                          <span className="text-[#050F1C] text-base font-medium">
-                            ⚠️ Gazette Update: BlueRock Mining Ltd
-                          </span>
-                          <div>
-                            <span className="text-[#10B981] text-sm font-normal">Type</span>
-                            <span className="text-[#525866] text-sm font-normal">: Change of Warehouse location</span>
-                          </div>
-                        </div>
-                        <span className="text-[#525866] text-xs font-normal">3 hours ago</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+        <section aria-labelledby="corporate-activity-heading">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 id="corporate-activity-heading" className="text-sm font-bold uppercase tracking-[0.1em] text-[#526773]">Account activity</h2>
+            <p className="hidden text-xs text-[#829099] sm:block">Current workspace totals</p>
           </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {metrics.map(({ label, value, context, icon: Icon, destination }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onNavigate?.(destination)}
+                className="group flex min-h-[132px] items-start justify-between border border-[#dce5e9] bg-white p-5 text-left shadow-[0_3px_12px_rgba(10,35,53,0.04)] transition-colors hover:border-[#a9c7bc]"
+              >
+                <span>
+                  <span className="block text-sm font-medium text-[#687983]">{label}</span>
+                  <span className="mt-4 block text-3xl font-semibold text-[#102f49]">{value}</span>
+                  <span className="mt-1 block text-xs text-[#829099]">{context}</span>
+                </span>
+                <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[#e2f4eb] text-[#0c6b4a]"><Icon size={20} /></span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+          <Panel
+            title="Recent searches"
+            description="Entities reviewed by your team"
+            actions={<Button variant="ghost" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" onClick={() => onNavigate?.('search')}>View all</Button>}
+            bodyClassName="!p-0"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-[#f2f5f6]"><tr><th className="px-5 py-3.5">Entity</th><th className="px-5 py-3.5">Type</th><th className="px-5 py-3.5">Legal records</th><th className="px-5 py-3.5">Last viewed</th></tr></thead>
+                <tbody className="divide-y divide-[#e3eaed]">
+                  {recentSearches.map((item) => (
+                    <tr key={item.name} className="hover:bg-[#f8fafa]"><td className="px-5 py-3.5 font-medium text-[#17334a]">{item.name}</td><td className="px-5 py-3.5 text-[#60717c]">{item.type}</td><td className="px-5 py-3.5 text-[#60717c]">{item.status}</td><td className="px-5 py-3.5 text-[#60717c]">{item.lastViewed}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Watchlist"
+            description="Recently changed risk signals"
+            actions={<Button variant="ghost" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" onClick={() => onNavigate?.('watchlist')}>View all</Button>}
+            bodyClassName="!p-0"
+          >
+            <div className="divide-y divide-[#e3eaed]">
+              {watchlistItems.map((item) => (
+                <button key={item.name} type="button" onClick={() => onNavigate?.('watchlist')} className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-[#f8fafa]">
+                  <span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#17334a]">{item.name}</span><span className="mt-1 block text-xs text-[#7a8991]">{item.activity}</span></span>
+                  <Badge variant={item.variant}>{item.riskScore}</Badge>
+                </button>
+              ))}
+            </div>
+          </Panel>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
+          <Panel
+            title="Export history"
+            description="Recently generated reports"
+            actions={<Button variant="ghost" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" onClick={() => onNavigate?.('requests-exports')}>View all</Button>}
+            bodyClassName="!p-0"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[620px] text-left text-sm">
+                <thead className="bg-[#f2f5f6]"><tr><th className="px-5 py-3.5">Entity</th><th className="px-5 py-3.5">Report</th><th className="px-5 py-3.5">Format</th><th className="px-5 py-3.5">Date</th></tr></thead>
+                <tbody className="divide-y divide-[#e3eaed]">
+                  {exportHistory.map((item) => (
+                    <tr key={`${item.name}-${item.date}`} className="hover:bg-[#f8fafa]"><td className="px-5 py-3.5 font-medium text-[#17334a]">{item.name}</td><td className="px-5 py-3.5 text-[#60717c]">{item.type}</td><td className="px-5 py-3.5"><Badge variant="info">{item.format}</Badge></td><td className="px-5 py-3.5 text-[#60717c]">{item.date}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <Panel title="Alerts" description="Updates from monitored records" bodyClassName="!p-0">
+            <div className="divide-y divide-[#e3eaed]">
+              {alerts.map((alert) => (
+                <div key={alert.title} className="flex gap-3 px-5 py-4">
+                  <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${alert.variant === 'danger' ? 'bg-[#fff0f1] text-[#b52f3f]' : 'bg-[#fff2d9] text-[#9b6512]'}`}><Bell size={17} /></span>
+                  <div><p className="text-sm font-semibold leading-5 text-[#17334a]">{alert.title}</p><p className="mt-1 text-xs leading-5 text-[#687983]">{alert.detail}</p><p className="mt-2 text-[11px] text-[#8a989f]">{alert.time}</p></div>
+                </div>
+              ))}
+            </div>
+          </Panel>
         </div>
       </div>
+    </div>
   );
 };
 
 export default CorporateClientDashboardOverview;
-

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "postgres"
-    postgres_password: str = "62579011"
+    postgres_password: str = ""
     postgres_database: str = "juridence"
     
     # JWT Configuration
@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     
     # CORS Configuration
     cors_origins: list = [
-        "http://localhost:3000", 
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
         "https://case-search-frontend.ondigitalocean.app",
         "https://juridence.net",
         "https://www.juridence.net",

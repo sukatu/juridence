@@ -70,4 +70,5 @@ from .change_of_name import ChangeOfName
 from .marriage_officer import MarriageOfficer
 from .marriage_venue import MarriageVenue
 from .bank_rulings_judgements import BankRulingsJudgements
+from .pending_case_party import PendingCaseParty
 from .case_summary import CaseSummary

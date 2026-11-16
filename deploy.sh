@@ -12,11 +12,25 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Server configuration
-SERVER_IP="62.171.137.28"
-SERVER_USER="root"
-SERVER_PASS="OJTn3IDq6umk6FagN"
-APP_DIR="/home/juridence/juridence"
+# Server configuration. Keep credentials in the local environment, never in Git.
+SERVER_IP="${SERVER_IP:-}"
+SERVER_PORT="${SERVER_PORT:-22}"
+SERVER_USER="${SERVER_USER:-}"
+SERVER_PASS="${SERVER_PASS:-}"
+APP_DIR="${APP_DIR:-/home/juridence/juridence}"
+POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+POSTGRES_USER="${POSTGRES_USER:-postgres}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
+POSTGRES_DATABASE="${POSTGRES_DATABASE:-juridence_4}"
+
+required_variables=(SERVER_IP SERVER_USER POSTGRES_PASSWORD)
+for variable_name in "${required_variables[@]}"; do
+    if [ -z "${!variable_name}" ]; then
+        echo "Missing required environment variable: ${variable_name}" >&2
+        exit 1
+    fi
+done
 
 # Function to print colored output
 print_status() {
@@ -43,28 +57,28 @@ fi
 
 print_status "Starting deployment to ${SERVER_IP}..."
 
-# Install sshpass if not available (for password-based SSH)
-if ! command -v sshpass &> /dev/null; then
-    print_warning "sshpass not found. Installing..."
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        if ! command -v brew &> /dev/null; then
-            print_error "Homebrew not found. Please install it first: https://brew.sh"
-            exit 1
-        fi
-        brew install hudochenkov/sshpass/sshpass
-    else
-        sudo apt-get update && sudo apt-get install -y sshpass
-    fi
+# Password authentication is optional; SSH keys are preferred.
+if [ -n "${SERVER_PASS}" ] && ! command -v sshpass &> /dev/null; then
+    print_error "SERVER_PASS is set, but sshpass is not installed. Install it or use SSH key authentication."
+    exit 1
 fi
 
 # Function to run SSH command
 ssh_cmd() {
-    sshpass -p "${SERVER_PASS}" ssh -o StrictHostKeyChecking=no "${SERVER_USER}@${SERVER_IP}" "$@"
+    if [ -n "${SERVER_PASS}" ]; then
+        sshpass -p "${SERVER_PASS}" ssh -p "${SERVER_PORT}" -o StrictHostKeyChecking=accept-new "${SERVER_USER}@${SERVER_IP}" "$@"
+    else
+        ssh -p "${SERVER_PORT}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new "${SERVER_USER}@${SERVER_IP}" "$@"
+    fi
 }
 
 # Function to run SCP command
 scp_cmd() {
-    sshpass -p "${SERVER_PASS}" scp -o StrictHostKeyChecking=no -r "$@"
+    if [ -n "${SERVER_PASS}" ]; then
+        sshpass -p "${SERVER_PASS}" scp -P "${SERVER_PORT}" -o StrictHostKeyChecking=accept-new -r "$@"
+    else
+        scp -P "${SERVER_PORT}" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -r "$@"
+    fi
 }
 
 print_status "Checking server connection..."
@@ -135,12 +149,12 @@ print_success "Backend files uploaded"
 # Create .env file on server with database credentials
 print_status "Creating .env file on server..."
 ssh_cmd "cat > ${APP_DIR}/backend/.env << 'EOF'
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=62579011
-POSTGRES_DATABASE=juridence
-DATABASE_URL_ENV=postgresql://postgres:62579011@localhost:5432/juridence
+POSTGRES_HOST=${POSTGRES_HOST}
+POSTGRES_PORT=${POSTGRES_PORT}
+POSTGRES_USER=${POSTGRES_USER}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+POSTGRES_DATABASE=${POSTGRES_DATABASE}
+DATABASE_URL_ENV=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DATABASE}
 SECRET_KEY=$(openssl rand -hex 32)
 DEBUG=False
 FRONTEND_URL=https://juridence.net
@@ -188,51 +202,85 @@ RestartSec=10
 WantedBy=multi-user.target
 EOFSERVICE"
 
-# Create Nginx configuration
+# Create Nginx configuration (with SSL for juridence.net / www.juridence.net)
 print_status "Configuring Nginx..."
-ssh_cmd "cat > /etc/nginx/sites-available/juridence << 'EOF'
+ssh_cmd 'cat > /etc/nginx/sites-available/juridence << EOF
 server {
     listen 80;
-    server_name _;
+    server_name juridence.net www.juridence.net _;
 
-    # Frontend
     location / {
-        root ${APP_DIR}/build;
+        root '"${APP_DIR}"'/build;
         index index.html index.htm;
         try_files \$uri \$uri/ /index.html;
-        
-        # Security headers
-        add_header X-Frame-Options \"SAMEORIGIN\" always;
-        add_header X-XSS-Protection \"1; mode=block\" always;
-        add_header X-Content-Type-Options \"nosniff\" always;
-        add_header Referrer-Policy \"no-referrer-when-downgrade\" always;
-        add_header Content-Security-Policy \"default-src 'self' http: https: data: blob: 'unsafe-inline'\" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer-when-downgrade" always;
     }
 
-    # Backend API
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
     }
 
-    # Backend uploads (different path to avoid conflict with build static files)
     location /uploads/ {
-        alias ${APP_DIR}/backend/uploads/;
+        alias '"${APP_DIR}"'/backend/uploads/;
         expires 1y;
-        add_header Cache-Control \"public, immutable\";
+        add_header Cache-Control "public, immutable";
     }
 
-    # File upload size limit
     client_max_body_size 100M;
 }
-EOF"
+
+server {
+    listen 443 ssl;
+    server_name juridence.net www.juridence.net;
+    root '"${APP_DIR}"'/build;
+    index index.html index.htm;
+
+    ssl_certificate /etc/letsencrypt/live/juridence.net/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/juridence.net/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
+    }
+
+    location /uploads/ {
+        alias '"${APP_DIR}"'/backend/uploads/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    client_max_body_size 100M;
+}
+EOF'
 
 # Enable Nginx site
 ssh_cmd "ln -sf /etc/nginx/sites-available/juridence /etc/nginx/sites-enabled/"

@@ -53,8 +53,22 @@ async def search_cases(
         CaseSearchIndex, ReportedCases.id == CaseSearchIndex.case_id
     )
     
-    # Search conditions - search only in title field
-    search_conditions = func.lower(ReportedCases.title).like(search_term)
+    # Search conditions - expand beyond title to include key case fields
+    search_conditions = or_(
+        func.lower(ReportedCases.title).like(search_term),
+        func.lower(ReportedCases.suit_reference_number).like(search_term),
+        func.lower(ReportedCases.protagonist).like(search_term),
+        func.lower(ReportedCases.antagonist).like(search_term),
+        func.lower(ReportedCases.presiding_judge).like(search_term),
+        func.lower(ReportedCases.lawyers).like(search_term),
+        func.lower(ReportedCases.judgement_by).like(search_term),
+        func.lower(ReportedCases.case_summary).like(search_term),
+        func.lower(ReportedCases.detail_content).like(search_term),
+        func.lower(ReportedCases.decision).like(search_term),
+        func.lower(ReportedCases.judgement).like(search_term),
+        func.lower(CaseMetadata.case_summary).like(search_term),
+        func.lower(CaseSearchIndex.searchable_text).like(search_term)
+    )
     
     cases_query = cases_query.filter(search_conditions)
     
@@ -86,10 +100,20 @@ async def search_cases(
             match_type = "protagonist"
         elif case.antagonist and query.lower() in case.antagonist.lower():
             match_type = "antagonist"
+        elif case.suit_reference_number and query.lower() in case.suit_reference_number.lower():
+            match_type = "suit_reference"
         elif case.presiding_judge and query.lower() in case.presiding_judge.lower():
             match_type = "judge"
         elif case.lawyers and query.lower() in case.lawyers.lower():
             match_type = "lawyer"
+        elif case.decision and query.lower() in case.decision.lower():
+            match_type = "decision"
+        elif case.judgement and query.lower() in case.judgement.lower():
+            match_type = "judgement"
+        elif case.case_summary and query.lower() in case.case_summary.lower():
+            match_type = "summary"
+        elif case.detail_content and query.lower() in case.detail_content.lower():
+            match_type = "content"
         else:
             match_type = "content"
         

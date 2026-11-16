@@ -55,6 +55,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
   const [supremeError, setSupremeError] = useState('');
   const [supremeCategory, setSupremeCategory] = useState(null);
   const [supremeDate, setSupremeDate] = useState('');
+  const [supremeSearchQuery, setSupremeSearchQuery] = useState('');
   const [supremeNews, setSupremeNews] = useState([]);
   const [supremeNewsLoading, setSupremeNewsLoading] = useState(false);
   const [selectedNewsUrl, setSelectedNewsUrl] = useState('');
@@ -185,6 +186,28 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
     const key = supremeCategory;
     return supremeCasesForDay.filter((item) => getSuitPrefix(item.suit_no) === key);
   }, [supremeCasesForDay, supremeCategory]);
+
+  const supremeCasesSearched = useMemo(() => {
+    const query = supremeSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return supremeCasesFiltered;
+    }
+    return supremeCasesFiltered.filter((item) => {
+      const values = [
+        item?.case_title,
+        item?.suit_no,
+        item?.first_party_name,
+        item?.second_party_name,
+        item?.third_party_name,
+        item?.interested_parties,
+        item?.remarks,
+        item?.venue,
+        item?.hearing_date,
+        item?.hearing_time
+      ];
+      return values.some((value) => value && String(value).toLowerCase().includes(query));
+    });
+  }, [supremeCasesFiltered, supremeSearchQuery]);
 
   useEffect(() => {
     setSupremeSelectedCase(null);
@@ -1198,7 +1221,7 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
   // If Supreme Court is selected, show categorized page
   if (isSupremeCourt) {
     const activeCategory = supremeCategories.find((category) => category.key === supremeCategory);
-    const activeCases = supremeCasesFiltered;
+    const activeCases = supremeCasesSearched;
     const dateIndex = supremeDates.findIndex((d) => d === supremeDate);
     const hasPrevDate = dateIndex > 0;
     const hasNextDate = dateIndex >= 0 && dateIndex < supremeDates.length - 1;
@@ -1276,8 +1299,20 @@ const CauseListPage = ({ userInfo, onNavigate, onLogout }) => {
                       {selectedCourt} cause list diary
                     </div>
                   </div>
-                  <div className="text-xs text-[#6B7280]">
-                    {activeCases.length} results
+                  <div className="flex items-center gap-4">
+                    <div className="relative w-56">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF]" />
+                      <input
+                        type="text"
+                        value={supremeSearchQuery}
+                        onChange={(e) => setSupremeSearchQuery(e.target.value)}
+                        placeholder="Search this list"
+                        className="w-full pl-9 pr-3 py-2 text-xs border border-[#E5E8EC] rounded-full text-[#040E1B] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#022658]/10"
+                      />
+                    </div>
+                    <div className="text-xs text-[#6B7280] whitespace-nowrap">
+                      {activeCases.length} results
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center justify-between gap-6">
