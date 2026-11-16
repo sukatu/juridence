@@ -59,7 +59,7 @@ class Settings(BaseSettings):
             return self.database_url_env
         from urllib.parse import quote_plus
         password = quote_plus(self.postgres_password)
-        return f"postgresql://{self.postgres_user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
+        return f"postgresql+psycopg2://{self.postgres_user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_database}"
     
     class Config:
         env_file = ".env"
