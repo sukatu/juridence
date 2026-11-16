@@ -1,0 +1,11 @@
+RewriteEngine On
+
+# Keep the FastAPI service on a private loopback port.
+RewriteRule ^api/(.*)$ http://127.0.0.1:8000/api/$1 [P,L]
+RewriteRule ^health$ http://127.0.0.1:8000/health [P,L]
+
+# Serve built assets directly and let React Router handle application routes.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+RewriteRule ^ index.html [L]
