@@ -1,421 +1,1679 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertCircle, CalendarDays, CheckCircle, ChevronLeft, ChevronRight, Church,
-  Clock, Download, Edit3, Eye, FileSpreadsheet, FileText, MapPin, Plus,
-  Search, Sparkles, Star, Trash2, Upload, UserRound, X,
+  Search,
+  Plus,
+  Upload,
+  Filter,
+  Calendar,
+  FileText,
+  Eye,
+  Edit,
+  Trash2,
+  Download,
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  Star,
+  MapPin,
+  Building,
+  User,
+  Banknote,
+  Shield,
+  FileSpreadsheet,
+  X,
+  Sparkles
 } from 'lucide-react';
-import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api';
-import AdminHeader from '../components/admin/AdminHeader';
-import { ToastContainer, useToast } from '../components/Toast';
-import {
-  Badge, Button, Checkbox, IconButton, Input, PageHeader, Panel, Select, Textarea,
-} from '../components/ui';
+import { apiGet, apiPost, apiPut, apiDelete } from '../utils/api';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
-const GAZETTE_TYPES = [
-  { value: 'CHANGE_OF_NAME', label: 'Change of name', shortLabel: 'Names', icon: UserRound, endpoint: '/change-of-name/' },
-  { value: 'CHANGE_OF_DATE_OF_BIRTH', label: 'Date of birth', shortLabel: 'Dates', icon: CalendarDays, endpoint: '/correction-of-date-of-birth/' },
-  { value: 'CHANGE_OF_PLACE_OF_BIRTH', label: 'Place of birth', shortLabel: 'Places', icon: MapPin, endpoint: '/correction-of-place-of-birth/' },
-  { value: 'APPOINTMENT_OF_MARRIAGE_OFFICERS', label: 'Marriage officers', shortLabel: 'Officers', icon: Church, endpoint: '/marriage-officers/' },
-];
-
-const STATUS_VARIANTS = { PUBLISHED: 'success', DRAFT: 'warning', ARCHIVED: 'neutral', CANCELLED: 'danger' };
-const PRIORITY_VARIANTS = { LOW: 'success', MEDIUM: 'info', HIGH: 'warning', URGENT: 'danger' };
-
-const createEmptyForm = () => ({
-  title: '', description: '', content: '', summary: '', gazette_type: 'CHANGE_OF_NAME',
-  priority: 'MEDIUM', publication_date: new Date().toISOString().split('T')[0],
-  effective_date: '', expiry_date: '', source: '', reference_number: '',
-  gazette_number: '', page_number: '', jurisdiction: '', court_location: '',
-  person_id: '', company_id: '', bank_id: '', insurance_id: '', keywords: [], tags: [],
-  is_public: true, is_featured: false, item_number: '', old_name: '', alias_names: [],
-  new_name: '', profession: '', effective_date_of_change: '', remarks: '',
-  old_date_of_birth: '', new_date_of_birth: '', place_of_birth: '',
-  old_place_of_birth: '', new_place_of_birth: '', officer_name: '', officer_title: '',
-  appointment_authority: '', jurisdiction_area: '', gazette_date: '', gazette_page: '',
-  source_item_number: '',
-});
-
-const dateInput = (value, fallback = '') => value ? String(value).split('T')[0] : fallback;
-const formatDate = (value, empty = 'Not provided') => {
-  if (!value) return empty;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-};
-const formatLabel = (value) => value ? value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) : 'Not provided';
-const stripHtml = (value = '') => value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-
-const normalizeGazette = (item, type) => {
-  if (type === 'CHANGE_OF_NAME') return {
-    ...item, title: item.new_name || item.old_name || 'Change of name',
-    description: `${item.old_name || 'Not provided'} to ${item.new_name || 'Not provided'}`,
-    gazette_type: type, status: item.status || 'PUBLISHED', priority: item.priority || 'MEDIUM',
-    publication_date: item.gazette_date || item.effective_date || item.created_at,
-    source: item.gazette_number || item.source_details || 'Not provided',
-  };
-  if (type === 'CHANGE_OF_DATE_OF_BIRTH') return {
-    ...item, title: item.person_name || 'Date of birth correction',
-    description: `${item.old_date_of_birth || 'Not provided'} to ${item.new_date_of_birth || 'Not provided'}`,
-    gazette_type: type, status: item.status || 'PUBLISHED', priority: item.priority || 'MEDIUM',
-    publication_date: item.gazette_date || item.effective_date || item.created_at,
-    source: item.source_details || item.gazette_number || 'Not provided',
-  };
-  if (type === 'CHANGE_OF_PLACE_OF_BIRTH') return {
-    ...item, title: item.person_name || 'Place of birth correction',
-    description: `${item.old_place_of_birth || 'Not provided'} to ${item.new_place_of_birth || 'Not provided'}`,
-    gazette_type: type, status: item.status || 'PUBLISHED', priority: item.priority || 'MEDIUM',
-    publication_date: item.gazette_date || item.effective_date || item.created_at,
-    source: item.source_details || item.gazette_number || 'Not provided',
-  };
-  return {
-    ...item, title: item.officer_name || 'Marriage officer appointment',
-    description: [item.church, item.location].filter(Boolean).join(' / ') || 'Appointment notice',
-    gazette_type: type, status: item.status || 'PUBLISHED', priority: item.priority || 'MEDIUM',
-    publication_date: item.gazette_date || item.appointment_date || item.created_at,
-    source: item.source_details || item.gazette_number || 'Not provided',
-  };
-};
-
-const formFromGazette = (gazette) => ({
-  ...createEmptyForm(), ...gazette,
-  description: stripHtml(gazette.description || ''),
-  content: stripHtml(gazette.content || ''),
-  remarks: stripHtml(gazette.remarks || ''),
-  publication_date: dateInput(gazette.publication_date),
-  effective_date: dateInput(gazette.effective_date),
-  expiry_date: dateInput(gazette.expiry_date),
-  effective_date_of_change: dateInput(gazette.effective_date_of_change),
-  old_date_of_birth: dateInput(gazette.old_date_of_birth),
-  new_date_of_birth: dateInput(gazette.new_date_of_birth),
-  gazette_date: dateInput(gazette.gazette_date),
-  keywords: gazette.keywords || [], tags: gazette.tags || [], alias_names: gazette.alias_names || [],
-  is_public: gazette.is_public !== undefined ? gazette.is_public : true,
-  is_featured: Boolean(gazette.is_featured),
-});
-
-const Modal = ({ title, description, onClose, children, size = 'max-w-4xl' }) => (
-  <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#102033]/60 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
-    <div className={`max-h-[94vh] w-full overflow-y-auto rounded-t-lg bg-white shadow-2xl sm:rounded-lg ${size}`}>
-      <div className="sticky top-0 z-30 flex items-start justify-between gap-4 border-b border-[#e3eaed] bg-white px-5 py-4 sm:px-6">
-        <div><h2 className="text-lg font-semibold text-[#17334a]">{title}</h2>{description && <p className="mt-1 text-sm leading-5 text-[#71818a]">{description}</p>}</div>
-        <IconButton label="Close dialog" onClick={onClose} className="-mr-2 -mt-1 shrink-0"><X size={19} /></IconButton>
-      </div>
-      {children}
-    </div>
-  </div>
-);
-
-const RichField = ({ label, value, onChange, required, height = 130 }) => (
-  <Textarea
-    label={label}
-    value={value}
-    onChange={(event) => onChange(event.target.value)}
-    required={required}
-    rows={height >= 180 ? 8 : 5}
-    className="sm:col-span-2"
-  />
-);
-
-const GazetteForm = ({ formData, setFormData, onSubmit, onCancel, saving, mode, error }) => {
-  const setField = (field, value) => setFormData((current) => ({ ...current, [field]: value }));
-  const listValue = (value) => Array.isArray(value) ? value.join(', ') : value || '';
-  const setList = (field, value) => setField(field, value.split(',').map((item) => item.trim()).filter(Boolean));
-  return (
-    <form onSubmit={onSubmit}>
-      <div className="space-y-7 p-5 sm:p-6">
-        {error && <div className="rounded-lg border border-[#f1c7cd] bg-[#fff5f6] p-3 text-sm text-[#a82e3d]">{error}</div>}
-
-        <section>
-          <h3 className="font-semibold text-[#17334a]">Notice details</h3>
-          <p className="mt-1 text-xs text-[#7a8991]">Core publishing and classification information.</p>
-          <div className="mt-4 grid gap-5 sm:grid-cols-2">
-            <Input label="Title" value={formData.title} onChange={(event) => setField('title', event.target.value)} required className="sm:col-span-2" />
-            <Select label="Notice type" value={formData.gazette_type} onChange={(event) => setField('gazette_type', event.target.value)} required>
-              {GAZETTE_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
-            </Select>
-            <Select label="Priority" value={formData.priority} onChange={(event) => setField('priority', event.target.value)}>
-              <option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="URGENT">Urgent</option>
-            </Select>
-            <Input label="Publication date" type="date" value={formData.publication_date} onChange={(event) => setField('publication_date', event.target.value)} required />
-            <Input label="Source" value={formData.source} onChange={(event) => setField('source', event.target.value)} placeholder="Gazette or issuing authority" />
-            <RichField label="Description" value={formData.description} onChange={(value) => setField('description', value)} />
-            <RichField label="Notice content" value={formData.content} onChange={(value) => setField('content', value)} required height={190} />
-          </div>
-        </section>
-
-        <section className="border-t border-[#e3eaed] pt-6">
-          <h3 className="font-semibold text-[#17334a]">Legal notice fields</h3>
-          <p className="mt-1 text-xs text-[#7a8991]">Fields shown here follow the selected notice type.</p>
-          <div className="mt-4 grid gap-5 sm:grid-cols-2">
-            {formData.gazette_type === 'CHANGE_OF_NAME' && <>
-              <Input label="Item number" value={formData.item_number} onChange={(event) => setField('item_number', event.target.value)} />
-              <Input label="Source item number" value={formData.source_item_number} onChange={(event) => setField('source_item_number', event.target.value)} />
-              <Input label="Old name" value={formData.old_name} onChange={(event) => setField('old_name', event.target.value)} />
-              <Input label="New name" value={formData.new_name} onChange={(event) => setField('new_name', event.target.value)} />
-              <Input label="Aliases" value={listValue(formData.alias_names)} onChange={(event) => setList('alias_names', event.target.value)} hint="Separate multiple aliases with commas" />
-              <Input label="Profession" value={formData.profession} onChange={(event) => setField('profession', event.target.value)} />
-              <Input label="Effective date of change" type="date" value={formData.effective_date_of_change} onChange={(event) => setField('effective_date_of_change', event.target.value)} />
-              <Input label="Gazette page" type="number" value={formData.gazette_page} onChange={(event) => setField('gazette_page', event.target.value)} />
-            </>}
-            {formData.gazette_type === 'CHANGE_OF_DATE_OF_BIRTH' && <>
-              <Input label="Old date of birth" type="date" value={formData.old_date_of_birth} onChange={(event) => setField('old_date_of_birth', event.target.value)} />
-              <Input label="New date of birth" type="date" value={formData.new_date_of_birth} onChange={(event) => setField('new_date_of_birth', event.target.value)} />
-              <Input label="Place of birth" value={formData.place_of_birth} onChange={(event) => setField('place_of_birth', event.target.value)} className="sm:col-span-2" />
-            </>}
-            {formData.gazette_type === 'CHANGE_OF_PLACE_OF_BIRTH' && <>
-              <Input label="Old place of birth" value={formData.old_place_of_birth} onChange={(event) => setField('old_place_of_birth', event.target.value)} />
-              <Input label="New place of birth" value={formData.new_place_of_birth} onChange={(event) => setField('new_place_of_birth', event.target.value)} />
-            </>}
-            {formData.gazette_type === 'APPOINTMENT_OF_MARRIAGE_OFFICERS' && <>
-              <Input label="Officer name" value={formData.officer_name} onChange={(event) => setField('officer_name', event.target.value)} />
-              <Input label="Officer title" value={formData.officer_title} onChange={(event) => setField('officer_title', event.target.value)} />
-              <Input label="Appointment authority" value={formData.appointment_authority} onChange={(event) => setField('appointment_authority', event.target.value)} />
-              <Input label="Jurisdiction area" value={formData.jurisdiction_area} onChange={(event) => setField('jurisdiction_area', event.target.value)} />
-            </>}
-            <Input label="Gazette number" value={formData.gazette_number} onChange={(event) => setField('gazette_number', event.target.value)} />
-            <Input label="Gazette date" type="date" value={formData.gazette_date} onChange={(event) => setField('gazette_date', event.target.value)} />
-            <RichField label="Remarks" value={formData.remarks} onChange={(value) => setField('remarks', value)} />
-          </div>
-        </section>
-
-        <section className="border-t border-[#e3eaed] pt-6">
-          <h3 className="font-semibold text-[#17334a]">Reference and visibility</h3>
-          <div className="mt-4 grid gap-5 sm:grid-cols-2">
-            <Input label="Reference number" value={formData.reference_number} onChange={(event) => setField('reference_number', event.target.value)} />
-            <Input label="Page number" type="number" value={formData.page_number} onChange={(event) => setField('page_number', event.target.value)} />
-            <Input label="Jurisdiction" value={formData.jurisdiction} onChange={(event) => setField('jurisdiction', event.target.value)} />
-            <Input label="Court location" value={formData.court_location} onChange={(event) => setField('court_location', event.target.value)} />
-            <Input label="Effective date" type="date" value={formData.effective_date} onChange={(event) => setField('effective_date', event.target.value)} />
-            <Input label="Expiry date" type="date" value={formData.expiry_date} onChange={(event) => setField('expiry_date', event.target.value)} />
-            <Input label="Keywords" value={listValue(formData.keywords)} onChange={(event) => setList('keywords', event.target.value)} hint="Comma-separated" />
-            <Input label="Tags" value={listValue(formData.tags)} onChange={(event) => setList('tags', event.target.value)} hint="Comma-separated" />
-            <div className="grid gap-4 rounded-lg border border-[#d9e2e6] bg-[#f8faf9] p-4 sm:col-span-2 sm:grid-cols-2">
-              <Checkbox label="Public notice" description="Visible to users outside the admin workspace." checked={formData.is_public} onChange={(event) => setField('is_public', event.target.checked)} />
-              <Checkbox label="Featured notice" description="Prioritise this notice in featured views." checked={formData.is_featured} onChange={(event) => setField('is_featured', event.target.checked)} />
-            </div>
-          </div>
-        </section>
-      </div>
-      <div className="sticky bottom-0 z-20 flex flex-col-reverse gap-2 border-t border-[#e3eaed] bg-white px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-        <Button variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button type="submit" loading={saving}>{mode === 'create' ? 'Create notice' : 'Save changes'}</Button>
-      </div>
-    </form>
-  );
-};
-
-const GazetteManagement = ({ userInfo, onNavigate, onLogout }) => {
+const GazetteManagement = () => {
   const navigate = useNavigate();
-  const { toasts, success, error: showError, removeToast } = useToast();
   const [gazettes, setGazettes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
-  const [gazetteError, setGazetteError] = useState(null);
+
+  // Quill editor configuration
+  const quillModules = {
+    toolbar: [
+      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ 'color': [] }, { 'background': [] }],
+      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+      [{ 'indent': '-1'}, { 'indent': '+1' }],
+      [{ 'align': [] }],
+      ['link', 'image'],
+      ['clean']
+    ],
+  };
+
+  const quillFormats = [
+    'header', 'bold', 'italic', 'underline', 'strike',
+    'color', 'background', 'list', 'bullet', 'indent',
+    'align', 'link', 'image'
+  ];
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeType, setActiveType] = useState('CHANGE_OF_NAME');
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, total_pages: 1 });
-  const [activeDialog, setActiveDialog] = useState(null);
+  const [filters, setFilters] = useState({
+    gazette_type: '',
+    status: '',
+    priority: '',
+    jurisdiction: '',
+    source: '',
+    date_from: '',
+    date_to: '',
+    is_public: '',
+    is_featured: ''
+  });
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    total_pages: 0
+  });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedGazette, setSelectedGazette] = useState(null);
-  const [formData, setFormData] = useState(createEmptyForm);
-  const [formError, setFormError] = useState(null);
-  const [saving, setSaving] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importType, setImportType] = useState('CHANGE_OF_NAME');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    content: '',
+    summary: '',
+    gazette_type: 'CHANGE_OF_NAME',
+    priority: 'MEDIUM',
+    publication_date: new Date().toISOString().split('T')[0],
+    effective_date: '',
+    expiry_date: '',
+    source: '',
+    reference_number: '',
+    gazette_number: '',
+    page_number: '',
+    jurisdiction: '',
+    court_location: '',
+    person_id: '',
+    company_id: '',
+    bank_id: '',
+    insurance_id: '',
+    keywords: [],
+    tags: [],
+    is_public: true,
+    is_featured: false,
 
-  const activeTypeInfo = GAZETTE_TYPES.find((type) => type.value === activeType) || GAZETTE_TYPES[0];
+    // Legal Notice Specific Fields
+    item_number: '',
+    old_name: '',
+    alias_names: [],
+    new_name: '',
+    profession: '',
+    effective_date_of_change: '',
+    remarks: '',
+    old_date_of_birth: '',
+    new_date_of_birth: '',
+    place_of_birth: '',
+    old_place_of_birth: '',
+    new_place_of_birth: '',
+    officer_name: '',
+    officer_title: '',
+    appointment_authority: '',
+    jurisdiction_area: '',
+    gazette_date: '',
+    gazette_page: '',
+    source_item_number: ''
+  });
+
+  const gazetteTypes = [
+    { value: 'CHANGE_OF_NAME', label: 'Change of Name', icon: User, color: 'blue' },
+    { value: 'CHANGE_OF_DATE_OF_BIRTH', label: 'Correction of Date of Birth', icon: Calendar, color: 'green' },
+    { value: 'CHANGE_OF_PLACE_OF_BIRTH', label: 'Correction of Place of Birth', icon: MapPin, color: 'orange' },
+    { value: 'APPOINTMENT_OF_MARRIAGE_OFFICERS', label: 'Marriage Officers', icon: User, color: 'purple' }
+  ];
+
+  const statusOptions = [
+    { value: 'DRAFT', label: 'Draft', icon: Clock, color: 'yellow' },
+    { value: 'PUBLISHED', label: 'Published', icon: CheckCircle, color: 'green' },
+    { value: 'ARCHIVED', label: 'Archived', icon: FileText, color: 'gray' },
+    { value: 'CANCELLED', label: 'Cancelled', icon: AlertCircle, color: 'red' }
+  ];
+
+  const priorityOptions = [
+    { value: 'LOW', label: 'Low', color: 'green' },
+    { value: 'MEDIUM', label: 'Medium', color: 'yellow' },
+    { value: 'HIGH', label: 'High', color: 'orange' },
+    { value: 'URGENT', label: 'Urgent', color: 'red' }
+  ];
+
+  useEffect(() => {
+    loadGazettes();
+    loadStats();
+  }, [pagination.page, filters]);
 
   const loadGazettes = async () => {
-    const typeInfo = GAZETTE_TYPES.find((type) => type.value === activeType) || GAZETTE_TYPES[0];
     try {
-      setLoading(true); setGazetteError(null);
-      const params = new URLSearchParams({ page: pagination.page.toString(), limit: pagination.limit.toString() });
-      if (searchTerm.trim()) params.append('search', searchTerm.trim());
-      const response = await apiGet(`${typeInfo.endpoint}?${params}`);
-      setGazettes((response?.results || []).map((item) => normalizeGazette(item, activeType)));
-      setPagination((current) => ({ ...current, total: response?.total || 0, total_pages: Math.max(response?.total_pages || 1, 1) }));
+      setLoading(true);
+
+      // Filter out empty values to avoid 422 errors
+      const filteredFilters = Object.fromEntries(
+        Object.entries(filters).filter(([key, value]) => value !== '' && value !== null && value !== undefined)
+      );
+
+      const params = new URLSearchParams({
+        page: pagination.page,
+        limit: pagination.limit
+      });
+
+      // Add search parameter if present
+      if (searchTerm) {
+        params.append('search', searchTerm);
+      }
+
+      // Determine which endpoint to use based on gazette_type filter
+      let endpoint = '/gazette';
+      let responseData;
+
+      if (filters.gazette_type === 'CHANGE_OF_DATE_OF_BIRTH') {
+        endpoint = '/correction-of-date-of-birth/';
+        // Add other relevant filters for this endpoint
+        if (filteredFilters.date_from) params.append('effective_date_from', filteredFilters.date_from);
+        if (filteredFilters.date_to) params.append('effective_date_to', filteredFilters.date_to);
+        responseData = await apiGet(`${endpoint}?${params}`);
+        // Transform correction data to match gazette structure for display
+        const normalizedGazettes = (responseData.results || []).map(item => ({
+          ...item,
+          title: item.person_name || 'Correction of Date of Birth',
+          description: `${item.old_date_of_birth || 'N/A'} → ${item.new_date_of_birth || 'N/A'}`,
+          gazette_type: 'CHANGE_OF_DATE_OF_BIRTH',
+          status: 'PUBLISHED',
+          priority: 'MEDIUM',
+          publication_date: item.gazette_date || item.effective_date || item.created_at,
+          source: item.source_details || item.gazette_number || '-'
+        }));
+        responseData = {
+          gazettes: normalizedGazettes,
+          total: responseData.total || 0,
+          total_pages: responseData.total_pages || 0
+        };
+      } else if (filters.gazette_type === 'CHANGE_OF_PLACE_OF_BIRTH') {
+        endpoint = '/correction-of-place-of-birth/';
+        // Add other relevant filters for this endpoint
+        if (filteredFilters.date_from) params.append('effective_date_from', filteredFilters.date_from);
+        if (filteredFilters.date_to) params.append('effective_date_to', filteredFilters.date_to);
+        responseData = await apiGet(`${endpoint}?${params}`);
+        // Transform correction data to match gazette structure for display
+        const normalizedGazettes = (responseData.results || []).map(item => ({
+          ...item,
+          title: item.person_name || 'Correction of Place of Birth',
+          description: `${item.old_place_of_birth || 'N/A'} → ${item.new_place_of_birth || 'N/A'}`,
+          gazette_type: 'CHANGE_OF_PLACE_OF_BIRTH',
+          status: 'PUBLISHED',
+          priority: 'MEDIUM',
+          publication_date: item.gazette_date || item.effective_date || item.created_at,
+          source: item.source_details || item.gazette_number || '-'
+        }));
+        responseData = {
+          gazettes: normalizedGazettes,
+          total: responseData.total || 0,
+          total_pages: responseData.total_pages || 0
+        };
+      } else if (filters.gazette_type === 'APPOINTMENT_OF_MARRIAGE_OFFICERS') {
+        endpoint = '/marriage-officers/';
+        // Add other relevant filters for this endpoint
+        if (filteredFilters.date_from) params.append('appointment_date_from', filteredFilters.date_from);
+        if (filteredFilters.date_to) params.append('appointment_date_to', filteredFilters.date_to);
+        responseData = await apiGet(`${endpoint}?${params}`);
+        // Transform marriage officers data to match gazette structure for display
+        const normalizedGazettes = (responseData.results || []).map(item => ({
+          ...item,
+          title: item.officer_name || 'Marriage Officer',
+          description: `${item.church || ''} - ${item.location || ''}`.trim() || 'Marriage Officer Appointment',
+          gazette_type: 'APPOINTMENT_OF_MARRIAGE_OFFICERS',
+          status: 'PUBLISHED',
+          priority: 'MEDIUM',
+          publication_date: item.gazette_date || item.appointment_date || item.created_at,
+          source: item.source_details || item.gazette_number || '-'
+        }));
+        responseData = {
+          gazettes: normalizedGazettes,
+          total: responseData.total || 0,
+          total_pages: responseData.total_pages || 0
+        };
+      } else {
+        // CHANGE_OF_NAME or no filter - use gazette endpoint
+        // Add all filters for gazette endpoint
+        Object.entries(filteredFilters).forEach(([key, value]) => {
+          params.append(key, value);
+        });
+        responseData = await apiGet(`${endpoint}?${params}`);
+      }
+
+      setGazettes(responseData.gazettes || []);
+      setPagination(prev => ({
+        ...prev,
+        total: responseData.total || 0,
+        total_pages: responseData.total_pages || 0
+      }));
     } catch (error) {
       console.error('Error loading gazettes:', error);
-      const detail = error?.data?.detail || error?.message || 'Unable to load notices';
-      setGazetteError(detail); setGazettes([]);
-      setPagination((current) => ({ ...current, total: 0, total_pages: 1 }));
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadStats = async () => {
-    try { setStats(await apiGet('/gazette/stats/overview')); }
-    catch (error) { console.error('Error loading gazette statistics:', error); }
-  };
-
-  useEffect(() => {
-    const timer = window.setTimeout(loadGazettes, searchTerm ? 250 : 0);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pagination.page, activeType, searchTerm]);
-
-  useEffect(() => {
-    loadStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const closeDialog = () => {
-    setActiveDialog(null); setSelectedGazette(null); setFormError(null); setSaving(false);
-    setImportResult(null); setImportFile(null); setImporting(false);
-  };
-
-  const openCreate = () => {
-    setFormData({ ...createEmptyForm(), gazette_type: activeType }); setFormError(null); setActiveDialog('create');
-  };
-
-  const openEdit = (gazette) => {
-    setSelectedGazette(gazette); setFormData(formFromGazette(gazette)); setFormError(null); setActiveDialog('edit');
-  };
-
-  const handleSave = async (event) => {
-    event.preventDefault();
-    if (!formData.title.trim()) { setFormError('Title is required'); return; }
-    const plainContent = stripHtml(formData.content);
-    if (!plainContent) { setFormError('Notice content is required'); return; }
     try {
-      setSaving(true); setFormError(null);
-      if (activeDialog === 'edit') await apiPut(`/gazette/${selectedGazette.id}`, formData);
-      else await apiPost('/gazette', formData);
-      success(activeDialog === 'edit' ? 'Gazette notice updated' : 'Gazette notice created');
-      closeDialog(); await Promise.all([loadGazettes(), loadStats()]);
+      const response = await apiGet('/gazette/stats/overview');
+      setStats(response);
     } catch (error) {
-      console.error('Error saving gazette:', error);
-      setFormError(error?.detail || error?.message || 'Failed to save gazette notice');
-    } finally { setSaving(false); }
-  };
-
-  const requestDelete = (gazette) => { setSelectedGazette(gazette); setActiveDialog('delete'); };
-
-  const handleDelete = async () => {
-    try {
-      setSaving(true); await apiDelete(`/gazette/${selectedGazette.id}`);
-      success('Gazette notice removed'); closeDialog(); await Promise.all([loadGazettes(), loadStats()]);
-    } catch (error) {
-      console.error('Error deleting gazette:', error);
-      showError(error?.message || 'Failed to remove gazette notice');
-    } finally { setSaving(false); }
-  };
-
-  const handleFileUpload = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!/\.(xlsx|xls)$/i.test(file.name)) {
-      showError('Select a valid Excel file (.xlsx or .xls)'); event.target.value = ''; return;
+      console.error('Error loading stats:', error);
     }
-    setImportFile(file); setImportResult(null);
   };
 
-  const handleImport = async (event) => {
-    event.preventDefault();
-    if (!importFile) { showError('Select an Excel file to import'); return; }
+  const handleSearch = (e) => {
+    e.preventDefault();
+    setPagination(prev => ({ ...prev, page: 1 }));
+    loadGazettes();
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const handleCreateGazette = async (e) => {
+    e.preventDefault();
     try {
-      setImporting(true); setImportResult(null);
-      const body = new FormData(); body.append('file', importFile); body.append('gazette_type', importType);
-      const apiRoot = process.env.REACT_APP_API_URL || '/api';
-      const response = await fetch(`${apiRoot.replace(/\/$/, '')}/gazette/import-excel`, {
-        method: 'POST', body,
-        headers: localStorage.getItem('accessToken') ? { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } : {},
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || 'Import failed');
-      setImportResult({ success: true, message: `Imported ${result.imported_count || 0} gazette entries` });
-      setImportFile(null); success('Gazette import completed');
-      await Promise.all([loadGazettes(), loadStats()]);
+      const response = await apiPost('/gazette', formData);
+      setGazettes(prev => [response, ...prev]);
+      setShowCreateModal(false);
+      resetForm();
+      loadStats();
     } catch (error) {
-      console.error('Error importing gazette file:', error);
-      setImportResult({ success: false, message: error.message || 'Import failed' });
-    } finally { setImporting(false); }
+      console.error('Error creating gazette:', error);
+    }
   };
 
-  const handleExport = () => {
-    if (!gazettes.length) { showError('There are no notices to export'); return; }
-    const columns = [
-      ['Title', (item) => item.title], ['Type', (item) => formatLabel(item.gazette_type)],
-      ['Status', (item) => formatLabel(item.status)], ['Priority', (item) => formatLabel(item.priority)],
-      ['Publication date', (item) => formatDate(item.publication_date, '')], ['Source', (item) => item.source],
-    ];
-    const escape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const csv = [columns.map(([label]) => escape(label)).join(','), ...gazettes.map((item) => columns.map(([, get]) => escape(get(item))).join(','))].join('\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const link = document.createElement('a'); link.href = url;
-    link.download = `juridence-gazette-${activeType.toLowerCase().replace(/_/g, '-')}-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url);
-    success(`Exported ${gazettes.length} notice${gazettes.length === 1 ? '' : 's'}`);
+  const handleEditGazette = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await apiPut(`/gazette/${selectedGazette.id}`, formData);
+      setGazettes(prev => prev.map(g => g.id === selectedGazette.id ? response : g));
+      setShowEditModal(false);
+      setSelectedGazette(null);
+      resetForm();
+    } catch (error) {
+      console.error('Error updating gazette:', error);
+    }
   };
 
-  const changeType = (type) => {
-    setActiveType(type); setSearchTerm(''); setPagination((current) => ({ ...current, page: 1 }));
+  const handleGazetteSelectFromAI = (gazette) => {
+    // When a gazette is selected from AI search results, open it in edit modal
+    // This should NOT navigate away - just open the modal
+    if (gazette && gazette.id) {
+      // Fetch full gazette details
+      apiGet(`/gazette/${gazette.id}`)
+        .then(fullGazette => {
+          setSelectedGazette(fullGazette);
+          // Populate form with gazette data
+          setFormData({
+            title: fullGazette.title || '',
+            description: fullGazette.description || '',
+            content: fullGazette.content || '',
+            summary: fullGazette.summary || '',
+            gazette_type: fullGazette.gazette_type || 'CHANGE_OF_NAME',
+            priority: fullGazette.priority || 'MEDIUM',
+            publication_date: fullGazette.publication_date ? fullGazette.publication_date.split('T')[0] : new Date().toISOString().split('T')[0],
+            effective_date: fullGazette.effective_date ? fullGazette.effective_date.split('T')[0] : '',
+            expiry_date: fullGazette.expiry_date ? fullGazette.expiry_date.split('T')[0] : '',
+            source: fullGazette.source || '',
+            reference_number: fullGazette.reference_number || '',
+            gazette_number: fullGazette.gazette_number || '',
+            page_number: fullGazette.page_number || '',
+            jurisdiction: fullGazette.jurisdiction || '',
+            court_location: fullGazette.court_location || '',
+            person_id: fullGazette.person_id || '',
+            company_id: fullGazette.company_id || '',
+            bank_id: fullGazette.bank_id || '',
+            insurance_id: fullGazette.insurance_id || '',
+            keywords: fullGazette.keywords || [],
+            tags: fullGazette.tags || [],
+            is_public: fullGazette.is_public !== undefined ? fullGazette.is_public : true,
+            is_featured: fullGazette.is_featured || false,
+            item_number: fullGazette.item_number || '',
+            old_name: fullGazette.old_name || '',
+            alias_names: fullGazette.alias_names || [],
+            new_name: fullGazette.new_name || '',
+            profession: fullGazette.profession || '',
+            effective_date_of_change: fullGazette.effective_date_of_change ? fullGazette.effective_date_of_change.split('T')[0] : '',
+            remarks: fullGazette.remarks || '',
+            old_date_of_birth: fullGazette.old_date_of_birth ? fullGazette.old_date_of_birth.split('T')[0] : '',
+            new_date_of_birth: fullGazette.new_date_of_birth ? fullGazette.new_date_of_birth.split('T')[0] : '',
+            place_of_birth: fullGazette.place_of_birth || '',
+            old_place_of_birth: fullGazette.old_place_of_birth || '',
+            new_place_of_birth: fullGazette.new_place_of_birth || '',
+            officer_name: fullGazette.officer_name || '',
+            officer_title: fullGazette.officer_title || '',
+            appointment_authority: fullGazette.appointment_authority || '',
+            jurisdiction_area: fullGazette.jurisdiction_area || '',
+            gazette_date: fullGazette.gazette_date ? fullGazette.gazette_date.split('T')[0] : '',
+            gazette_page: fullGazette.gazette_page || '',
+            source_item_number: fullGazette.source_item_number || ''
+          });
+          setShowEditModal(true);
+        })
+        .catch(error => {
+          console.error('Error fetching gazette details:', error);
+        });
+    }
   };
 
-  const currentPublished = gazettes.filter((item) => item.status === 'PUBLISHED').length;
-  const statsCards = [
-    { label: `${activeTypeInfo.label} records`, value: pagination.total, icon: FileText, tone: 'text-[#245b8f]', bg: 'bg-[#e7f0f8]' },
-    { label: 'Published on page', value: currentPublished, icon: CheckCircle, tone: 'text-[#0c6b4a]', bg: 'bg-[#e2f4eb]' },
-    { label: 'Draft notices', value: stats?.draft_gazettes ?? 0, icon: Clock, tone: 'text-[#8b5a10]', bg: 'bg-[#fff2d9]' },
-    { label: 'Featured notices', value: stats?.featured_gazettes ?? 0, icon: Star, tone: 'text-[#6b4f9a]', bg: 'bg-[#f0ebf7]' },
-  ];
+  const handleDeleteGazette = async (id) => {
+    if (window.confirm('Are you sure you want to delete this gazette entry?')) {
+      try {
+        await apiDelete(`/gazette/${id}`);
+        setGazettes(prev => prev.filter(g => g.id !== id));
+        loadStats();
+      } catch (error) {
+        console.error('Error deleting gazette:', error);
+      }
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          file.type === 'application/vnd.ms-excel' ||
+          file.name.endsWith('.xlsx') ||
+          file.name.endsWith('.xls')) {
+        setImportFile(file);
+      } else {
+        alert('Please select a valid Excel file (.xlsx or .xls)');
+        e.target.value = '';
+      }
+    }
+  };
+
+  const handleImport = async (e) => {
+    e.preventDefault();
+    if (!importFile) {
+      alert('Please select a file to import');
+      return;
+    }
+
+    setImporting(true);
+    setImportResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      formData.append('gazette_type', importType);
+
+      const response = await fetch('/api/gazette/import-excel', {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setImportResult({
+          success: true,
+          message: `Successfully imported ${result.imported_count} gazette entries`,
+          details: result
+        });
+        setImportFile(null);
+        setImportType('CHANGE_OF_NAME');
+        loadGazettes();
+        loadStats();
+      } else {
+        setImportResult({
+          success: false,
+          message: result.detail || 'Import failed',
+          details: result
+        });
+      }
+    } catch (error) {
+      console.error('Error importing file:', error);
+      setImportResult({
+        success: false,
+        message: 'Import failed: ' + error.message,
+        details: null
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const resetImportForm = () => {
+    setImportFile(null);
+    setImportType('CHANGE_OF_NAME');
+    setImportResult(null);
+    setShowImportModal(false);
+  };
+
+  const resetForm = () => {
+    setFormData({
+      title: '',
+      description: '',
+      content: '',
+      summary: '',
+      gazette_type: 'CHANGE_OF_NAME',
+      priority: 'MEDIUM',
+      publication_date: new Date().toISOString().split('T')[0],
+      effective_date: '',
+      expiry_date: '',
+      source: '',
+      reference_number: '',
+      gazette_number: '',
+      page_number: '',
+      jurisdiction: '',
+      court_location: '',
+      person_id: '',
+      company_id: '',
+      bank_id: '',
+      insurance_id: '',
+      keywords: [],
+      tags: [],
+      is_public: true,
+      is_featured: false,
+
+      // Legal Notice Specific Fields
+      item_number: '',
+      old_name: '',
+      alias_names: [],
+      new_name: '',
+      profession: '',
+      effective_date_of_change: '',
+      remarks: '',
+      old_date_of_birth: '',
+      new_date_of_birth: '',
+      place_of_birth: '',
+      old_place_of_birth: '',
+      new_place_of_birth: '',
+      officer_name: '',
+      officer_title: '',
+      appointment_authority: '',
+      jurisdiction_area: '',
+      gazette_date: '',
+      gazette_page: '',
+      source_item_number: ''
+    });
+  };
+
+  const openEditModal = (gazette) => {
+    setSelectedGazette(gazette);
+    setFormData({
+      title: gazette.title || '',
+      description: gazette.description || '',
+      content: gazette.content || '',
+      summary: gazette.summary || '',
+      gazette_type: gazette.gazette_type || 'CHANGE_OF_NAME',
+      priority: gazette.priority || 'MEDIUM',
+      publication_date: gazette.publication_date ? gazette.publication_date.split('T')[0] : '',
+      effective_date: gazette.effective_date ? gazette.effective_date.split('T')[0] : '',
+      expiry_date: gazette.expiry_date ? gazette.expiry_date.split('T')[0] : '',
+      source: gazette.source || '',
+      reference_number: gazette.reference_number || '',
+      gazette_number: gazette.gazette_number || '',
+      page_number: gazette.page_number || '',
+      jurisdiction: gazette.jurisdiction || '',
+      court_location: gazette.court_location || '',
+      person_id: gazette.person_id || '',
+      company_id: gazette.company_id || '',
+      bank_id: gazette.bank_id || '',
+      insurance_id: gazette.insurance_id || '',
+      keywords: gazette.keywords || [],
+      tags: gazette.tags || [],
+      is_public: gazette.is_public !== undefined ? gazette.is_public : true,
+      is_featured: gazette.is_featured || false,
+
+      // Legal Notice Specific Fields
+      item_number: gazette.item_number || '',
+      old_name: gazette.old_name || '',
+      alias_names: gazette.alias_names || [],
+      new_name: gazette.new_name || '',
+      profession: gazette.profession || '',
+      effective_date_of_change: gazette.effective_date_of_change ? gazette.effective_date_of_change.split('T')[0] : '',
+      remarks: gazette.remarks || '',
+      old_date_of_birth: gazette.old_date_of_birth ? gazette.old_date_of_birth.split('T')[0] : '',
+      new_date_of_birth: gazette.new_date_of_birth ? gazette.new_date_of_birth.split('T')[0] : '',
+      place_of_birth: gazette.place_of_birth || '',
+      old_place_of_birth: gazette.old_place_of_birth || '',
+      new_place_of_birth: gazette.new_place_of_birth || '',
+      officer_name: gazette.officer_name || '',
+      officer_title: gazette.officer_title || '',
+      appointment_authority: gazette.appointment_authority || '',
+      jurisdiction_area: gazette.jurisdiction_area || '',
+      gazette_date: gazette.gazette_date ? gazette.gazette_date.split('T')[0] : '',
+      gazette_page: gazette.gazette_page || '',
+      source_item_number: gazette.source_item_number || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const getStatusIcon = (status) => {
+    const statusOption = statusOptions.find(s => s.value === status);
+    return statusOption ? statusOption.icon : Clock;
+  };
+
+  const getStatusColor = (status) => {
+    const statusOption = statusOptions.find(s => s.value === status);
+    return statusOption ? statusOption.color : 'gray';
+  };
+
+  const getTypeIcon = (type) => {
+    const typeOption = gazetteTypes.find(t => t.value === type);
+    return typeOption ? typeOption.icon : FileText;
+  };
+
+  const getTypeColor = (type) => {
+    const typeOption = gazetteTypes.find(t => t.value === type);
+    return typeOption ? typeOption.color : 'gray';
+  };
+
+  const getPriorityColor = (priority) => {
+    const priorityOption = priorityOptions.find(p => p.value === priority);
+    return priorityOption ? priorityOption.color : 'gray';
+  };
 
   return (
-    <div className="ui-page">
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Gazette" />
-      <main className="ui-page-content">
-        <PageHeader eyebrow="Legal data" title="Gazette" description="Manage official notices, legal corrections and appointment records."
-          actions={<><Button variant="outline" icon={<Sparkles size={17} />} onClick={() => navigate('/gazette-ai-search')}>AI search</Button><Button variant="outline" icon={<Upload size={17} />} onClick={() => { setImportType(activeType); setActiveDialog('import'); }}>Import Excel</Button><Button icon={<Plus size={17} />} onClick={openCreate}>Add notice</Button></>}
-        />
-
-        <section className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Gazette summary">
-          {statsCards.map(({ label, value, icon: Icon, tone, bg }) => <div key={label} className="flex min-h-[112px] items-center gap-3 rounded-lg border border-[#d9e2e6] bg-white p-4 shadow-sm sm:gap-4 sm:p-5"><span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11 ${bg} ${tone}`}><Icon size={20} /></span><div className="min-w-0"><p className="text-2xl font-semibold leading-none text-[#17334a]">{value}</p><p className="mt-2 text-xs font-medium leading-4 text-[#71818a] sm:text-sm">{label}</p></div></div>)}
-        </section>
-
-        <Panel title={activeTypeInfo.label} description={`${pagination.total} notice${pagination.total === 1 ? '' : 's'} in this collection`} bodyClassName="!p-0">
-          <div className="border-b border-[#e3eaed] px-4 py-4 sm:px-6">
-            <div className="flex gap-1 overflow-x-auto rounded-lg bg-[#edf2f3] p-1" role="tablist" aria-label="Gazette notice type">
-              {GAZETTE_TYPES.map((type) => {
-                const TypeIcon = type.icon;
-                return <button key={type.value} type="button" role="tab" aria-selected={activeType === type.value} onClick={() => changeType(type.value)} className={`flex min-h-[38px] shrink-0 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold transition-colors sm:flex-1 ${activeType === type.value ? 'bg-white text-[#17334a] shadow-sm' : 'text-[#60737d] hover:text-[#17334a]'}`}><TypeIcon size={15} /><span className="hidden xl:inline">{type.label}</span><span className="xl:hidden">{type.shortLabel}</span></button>;
-              })}
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="w-full">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">Gazette</h1>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">Gazette Management</h2>
+              <p className="text-gray-600">Manage official notices and legal announcements</p>
             </div>
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-              <Input aria-label={`Search ${activeTypeInfo.label.toLowerCase()}`} leadingIcon={<Search size={18} />} placeholder={`Search ${activeTypeInfo.label.toLowerCase()}`} value={searchTerm} onChange={(event) => { setSearchTerm(event.target.value); setPagination((current) => ({ ...current, page: 1 })); }} className="flex-1" />
-              {searchTerm && <Button variant="ghost" onClick={() => setSearchTerm('')}>Clear search</Button>}
-              <Button variant="outline" icon={<Download size={16} />} onClick={handleExport}>Export</Button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Gazette Entry
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import Excel
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  // Navigate to the new AI search page
+                  navigate('/gazette-ai-search');
+                }}
+                className="inline-flex items-center px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition-colors"
+              >
+                <Sparkles className="h-4 w-4 mr-2" />
+                AI Search
+              </button>
             </div>
           </div>
+        </div>
 
-          {gazetteError && <div className="m-4 flex items-start gap-3 rounded-lg border border-[#f1c7cd] bg-[#fff5f6] p-4 text-sm text-[#a82e3d] sm:m-6"><AlertCircle size={18} className="mt-0.5 shrink-0" /><span>{gazetteError}</span></div>}
+        {/* Stats Cards */}
+        {stats && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div className="bg-white p-6 rounded-lg shadow">
+              <div className="flex items-center">
+                <FileText className="h-8 w-8 text-blue-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Gazettes</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.total_gazettes}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow">
+              <div className="flex items-center">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Published</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.published_gazettes}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow">
+              <div className="flex items-center">
+                <Clock className="h-8 w-8 text-yellow-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Drafts</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.draft_gazettes}</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow">
+              <div className="flex items-center">
+                <Star className="h-8 w-8 text-purple-600" />
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Featured</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats.featured_gazettes}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
+        {/* Search and Filter Bar */}
+        <div className="bg-white p-4 rounded-lg shadow mb-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search gazettes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <select
+              value={filters.gazette_type}
+              onChange={(e) => handleFilterChange('gazette_type', e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All Types</option>
+              {gazetteTypes.map(type => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={filters.status}
+              onChange={(e) => handleFilterChange('status', e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All Status</option>
+              {statusOptions.map(status => (
+                <option key={status.value} value={status.value}>{status.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={filters.priority}
+              onChange={(e) => handleFilterChange('priority', e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All Priorities</option>
+              {priorityOptions.map(priority => (
+                <option key={priority.value} value={priority.value}>{priority.label}</option>
+              ))}
+            </select>
+
+            <div className="text-sm text-gray-600 flex items-center">
+              <span>{pagination.total} total gazettes</span>
+            </div>
+          </div>
+        </div>
+
+
+        {/* Gazette List */}
+        <div className="bg-white rounded-lg shadow overflow-hidden">
           {loading ? (
-            <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center"><span className="h-8 w-8 animate-spin rounded-full border-2 border-[#c7d3d8] border-t-[#17875a]" /><p className="mt-4 text-sm font-medium text-[#60737d]">Loading notices...</p></div>
+            <div className="p-8 text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-4 text-gray-600">Loading gazettes...</p>
+            </div>
           ) : gazettes.length === 0 ? (
-            <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center"><span className="flex h-12 w-12 items-center justify-center rounded-lg bg-[#edf2f3] text-[#60737d]"><FileText size={23} /></span><h3 className="mt-4 font-semibold text-[#17334a]">No notices found</h3><p className="mt-1 max-w-sm text-sm leading-6 text-[#71818a]">{searchTerm ? 'Try a different search or clear the query.' : `Add or import the first ${activeTypeInfo.label.toLowerCase()} notice.`}</p><Button icon={<Plus size={16} />} onClick={openCreate} className="mt-5">Add notice</Button></div>
+            <div className="p-8 text-center">
+              <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">No gazette entries found</p>
+            </div>
           ) : (
-            <>
-              <div className="hidden overflow-x-auto lg:block"><table className="w-full min-w-[1000px]"><thead><tr className="bg-[#f7f9fa] text-left"><th className="px-6 py-3">Notice</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Priority</th><th className="px-4 py-3">Published</th><th className="px-4 py-3">Source</th><th className="px-6 py-3 text-right">Actions</th></tr></thead><tbody>
-                {gazettes.map((gazette) => <tr key={gazette.id} className="border-t border-[#e7edef] hover:bg-[#f8faf9]"><td className="max-w-[320px] px-6 py-4"><p className="truncate font-semibold text-[#20384c]">{gazette.title}</p><p className="mt-0.5 truncate text-xs text-[#71818a]">{stripHtml(gazette.description) || 'No description'}</p></td><td className="px-4 py-4"><Badge variant="info">{GAZETTE_TYPES.find((type) => type.value === gazette.gazette_type)?.label || formatLabel(gazette.gazette_type)}</Badge></td><td className="px-4 py-4"><Badge variant={STATUS_VARIANTS[gazette.status] || 'neutral'}>{formatLabel(gazette.status)}</Badge></td><td className="px-4 py-4"><Badge variant={PRIORITY_VARIANTS[gazette.priority] || 'neutral'}>{formatLabel(gazette.priority)}</Badge></td><td className="whitespace-nowrap px-4 py-4 text-sm text-[#60737d]">{formatDate(gazette.publication_date)}</td><td className="max-w-[180px] px-4 py-4"><p className="truncate text-sm text-[#405867]">{gazette.source || 'Not provided'}</p></td><td className="px-6 py-4"><div className="flex justify-end gap-0.5"><IconButton label={`View ${gazette.title}`} size="sm" onClick={() => { setSelectedGazette(gazette); setActiveDialog('view'); }}><Eye size={16} /></IconButton><IconButton label={`Edit ${gazette.title}`} size="sm" onClick={() => openEdit(gazette)}><Edit3 size={16} /></IconButton><IconButton label={`Delete ${gazette.title}`} size="sm" className="text-[#a82e3d] hover:!bg-[#fff0f1] hover:!text-[#962535]" onClick={() => requestDelete(gazette)}><Trash2 size={16} /></IconButton></div></td></tr>)}
-              </tbody></table></div>
-              <div className="divide-y divide-[#e7edef] lg:hidden">{gazettes.map((gazette) => <article key={gazette.id} className="px-4 py-5 sm:px-6"><div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0 flex-1"><h3 className="font-semibold text-[#20384c]">{gazette.title}</h3><p className="mt-1 line-clamp-2 text-xs leading-5 text-[#71818a]">{stripHtml(gazette.description) || 'No description'}</p></div><Badge variant={STATUS_VARIANTS[gazette.status] || 'neutral'}>{formatLabel(gazette.status)}</Badge></div><div className="mt-3 grid grid-cols-2 gap-3 text-xs"><p className="text-[#71818a]">Published <span className="block font-semibold text-[#405867]">{formatDate(gazette.publication_date)}</span></p><p className="min-w-0 text-[#71818a]">Source <span className="block truncate font-semibold text-[#405867]">{gazette.source || 'Not provided'}</span></p></div><div className="mt-4 flex justify-end border-t border-[#edf1f3] pt-2"><IconButton label={`View ${gazette.title}`} size="sm" onClick={() => { setSelectedGazette(gazette); setActiveDialog('view'); }}><Eye size={16} /></IconButton><IconButton label={`Edit ${gazette.title}`} size="sm" onClick={() => openEdit(gazette)}><Edit3 size={16} /></IconButton><IconButton label={`Delete ${gazette.title}`} size="sm" className="text-[#a82e3d] hover:!bg-[#fff0f1] hover:!text-[#962535]" onClick={() => requestDelete(gazette)}><Trash2 size={16} /></IconButton></div></article>)}</div>
-            </>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Type
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Priority
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Publication Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Source
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {gazettes.map((gazette) => {
+                    const StatusIcon = getStatusIcon(gazette.status);
+                    const TypeIcon = getTypeIcon(gazette.gazette_type);
+                    const statusColor = getStatusColor(gazette.status);
+                    const typeColor = getTypeColor(gazette.gazette_type);
+                    const priorityColor = getPriorityColor(gazette.priority);
+
+                    return (
+                      <tr key={gazette.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <TypeIcon className={`h-5 w-5 text-${typeColor}-600 mr-3`} />
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {gazette.title}
+                              </div>
+                              {gazette.description && (
+                                <div className="text-sm text-gray-500 truncate max-w-xs">
+                                  {gazette.description}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-${typeColor}-100 text-${typeColor}-800`}>
+                            {gazetteTypes.find(t => t.value === gazette.gazette_type)?.label}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <StatusIcon className={`h-4 w-4 text-${statusColor}-600 mr-2`} />
+                            <span className={`text-sm text-${statusColor}-600`}>
+                              {statusOptions.find(s => s.value === gazette.status)?.label}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-${priorityColor}-100 text-${priorityColor}-800`}>
+                            {priorityOptions.find(p => p.value === gazette.priority)?.label}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {new Date(gazette.publication_date).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {gazette.source || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => openEditModal(gazette)}
+                              className="text-blue-600 hover:text-blue-900"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteGazette(gazette.id)}
+                              className="text-red-600 hover:text-red-900"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
+        </div>
 
-          {!loading && gazettes.length > 0 && <div className="flex flex-col gap-3 border-t border-[#e3eaed] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6"><p className="text-xs font-medium text-[#71818a]">Page {pagination.page} of {pagination.total_pages} / {pagination.total} notices</p><div className="flex gap-2"><Button variant="outline" size="sm" icon={<ChevronLeft size={16} />} disabled={pagination.page <= 1} onClick={() => setPagination((current) => ({ ...current, page: current.page - 1 }))}>Previous</Button><Button variant="outline" size="sm" icon={<ChevronRight size={16} />} iconPosition="right" disabled={pagination.page >= pagination.total_pages} onClick={() => setPagination((current) => ({ ...current, page: current.page + 1 }))}>Next</Button></div></div>}
-        </Panel>
-      </main>
+        {/* Pagination */}
+        {pagination.total_pages > 1 && (
+          <div className="flex items-center justify-between mt-6">
+            <div className="text-sm text-gray-700">
+              Showing page {pagination.page} of {pagination.total_pages}
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                disabled={pagination.page === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <button
+                onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                disabled={pagination.page === pagination.total_pages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
-      {(activeDialog === 'create' || activeDialog === 'edit') && <Modal title={activeDialog === 'create' ? 'Add gazette notice' : 'Edit gazette notice'} description="Create and publish structured legal notice information." onClose={closeDialog}><GazetteForm formData={formData} setFormData={setFormData} onSubmit={handleSave} onCancel={closeDialog} saving={saving} mode={activeDialog} error={formError} /></Modal>}
+      {/* Create Modal */}
+      {showCreateModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={() => {
+            setShowCreateModal(false);
+            resetForm();
+          }}
+        >
+          <div
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Create Gazette Entry</h2>
+              <form onSubmit={handleCreateGazette} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                    <select
+                      required
+                      value={formData.gazette_type}
+                      onChange={(e) => setFormData(prev => ({ ...prev, gazette_type: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {gazetteTypes.map(type => (
+                        <option key={type.value} value={type.value}>{type.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
 
-      {activeDialog === 'view' && selectedGazette && <Modal title="Gazette notice" description={GAZETTE_TYPES.find((type) => type.value === selectedGazette.gazette_type)?.label} onClose={closeDialog} size="max-w-2xl"><div className="p-5 sm:p-6"><div className="flex flex-wrap items-center gap-2"><Badge variant={STATUS_VARIANTS[selectedGazette.status] || 'neutral'}>{formatLabel(selectedGazette.status)}</Badge><Badge variant={PRIORITY_VARIANTS[selectedGazette.priority] || 'neutral'}>{formatLabel(selectedGazette.priority)}</Badge></div><h3 className="mt-4 text-xl font-semibold text-[#17334a]">{selectedGazette.title}</h3><p className="mt-2 text-sm leading-6 text-[#60737d]">{stripHtml(selectedGazette.description) || 'No description provided.'}</p><dl className="mt-6 grid gap-5 border-t border-[#e3eaed] pt-5 sm:grid-cols-2"><div><dt className="text-xs font-semibold uppercase text-[#7a8991]">Publication date</dt><dd className="mt-1 text-sm font-medium text-[#20384c]">{formatDate(selectedGazette.publication_date)}</dd></div><div><dt className="text-xs font-semibold uppercase text-[#7a8991]">Source</dt><dd className="mt-1 text-sm font-medium text-[#20384c]">{selectedGazette.source || 'Not provided'}</dd></div><div><dt className="text-xs font-semibold uppercase text-[#7a8991]">Gazette number</dt><dd className="mt-1 text-sm font-medium text-[#20384c]">{selectedGazette.gazette_number || 'Not provided'}</dd></div><div><dt className="text-xs font-semibold uppercase text-[#7a8991]">Reference</dt><dd className="mt-1 text-sm font-medium text-[#20384c]">{selectedGazette.reference_number || selectedGazette.item_number || 'Not provided'}</dd></div></dl></div><div className="flex justify-end gap-2 border-t border-[#e3eaed] px-5 py-4 sm:px-6"><Button variant="outline" onClick={closeDialog}>Close</Button><Button icon={<Edit3 size={16} />} onClick={() => openEdit(selectedGazette)}>Edit notice</Button></div></Modal>}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <ReactQuill
+                    value={formData.description}
+                    onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
+                    modules={quillModules}
+                    formats={quillFormats}
+                    theme="snow"
+                    style={{ height: '120px', marginBottom: '50px' }}
+                  />
+                </div>
 
-      {activeDialog === 'delete' && selectedGazette && <Modal title="Remove gazette notice" description="This action cannot be undone." onClose={closeDialog} size="max-w-md"><div className="p-5 sm:p-6"><div className="flex items-start gap-3 rounded-lg border border-[#f1c7cd] bg-[#fff5f6] p-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#fff0f1] text-[#a82e3d]"><Trash2 size={18} /></span><p className="text-sm leading-6 text-[#405867]">Remove <strong className="text-[#20384c]">{selectedGazette.title}</strong> from the gazette?</p></div></div><div className="flex flex-col-reverse gap-2 border-t border-[#e3eaed] px-5 py-4 sm:flex-row sm:justify-end sm:px-6"><Button variant="outline" onClick={closeDialog}>Cancel</Button><Button variant="danger" loading={saving} icon={<Trash2 size={16} />} onClick={handleDelete}>Remove notice</Button></div></Modal>}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Content *</label>
+                  <ReactQuill
+                    value={formData.content}
+                    onChange={(value) => setFormData(prev => ({ ...prev, content: value }))}
+                    modules={quillModules}
+                    formats={quillFormats}
+                    theme="snow"
+                    style={{ height: '200px', marginBottom: '50px' }}
+                  />
+                </div>
 
-      {activeDialog === 'import' && <Modal title="Import gazette data" description="Add structured notices from an Excel workbook." onClose={closeDialog} size="max-w-lg"><form onSubmit={handleImport}><div className="space-y-5 p-5 sm:p-6"><Select label="Gazette type" value={importType} onChange={(event) => setImportType(event.target.value)}>{GAZETTE_TYPES.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</Select><div><label className="ui-label" htmlFor="gazette-file-upload">Excel workbook</label><input id="gazette-file-upload" type="file" accept=".xlsx,.xls" onChange={handleFileUpload} className="sr-only" /><label htmlFor="gazette-file-upload" className="flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#aebdc4] bg-[#f8faf9] p-6 text-center transition-colors hover:border-[#17875a] hover:bg-[#f2f8f5]"><span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[#e2f4eb] text-[#0c6b4a]"><FileSpreadsheet size={22} /></span><span className="mt-3 text-sm font-semibold text-[#405867]">{importFile ? importFile.name : 'Choose an Excel workbook'}</span><span className="mt-1 text-xs text-[#7a8991]">Supports .xlsx and .xls</span></label></div>{importResult && <div className={`flex items-start gap-3 rounded-lg border p-4 text-sm ${importResult.success ? 'border-[#b9decf] bg-[#f0faf5] text-[#0c6b4a]' : 'border-[#f1c7cd] bg-[#fff5f6] text-[#a82e3d]'}`}>{importResult.success ? <CheckCircle size={18} /> : <AlertCircle size={18} />}<span>{importResult.message}</span></div>}</div><div className="flex flex-col-reverse gap-2 border-t border-[#e3eaed] px-5 py-4 sm:flex-row sm:justify-end sm:px-6"><Button variant="outline" onClick={closeDialog}>Cancel</Button><Button type="submit" loading={importing} disabled={!importFile} icon={<Upload size={16} />}>Import data</Button></div></form></Modal>}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                    <select
+                      value={formData.priority}
+                      onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {priorityOptions.map(priority => (
+                        <option key={priority.value} value={priority.value}>{priority.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Publication Date *</label>
+                    <input
+                      type="date"
+                      required
+                      value={formData.publication_date}
+                      onChange={(e) => setFormData(prev => ({ ...prev, publication_date: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                    <input
+                      type="text"
+                      value={formData.source}
+                      onChange={(e) => setFormData(prev => ({ ...prev, source: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
 
-      <ToastContainer toasts={toasts} removeToast={removeToast} />
+                {/* Dynamic Fields Based on Gazette Type */}
+                {formData.gazette_type === 'CHANGE_OF_NAME' && (
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-blue-900 mb-4">Change of Name Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Item Number</label>
+                        <input
+                          type="text"
+                          value={formData.item_number}
+                          onChange={(e) => setFormData(prev => ({ ...prev, item_number: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., 24024"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Name</label>
+                        <input
+                          type="text"
+                          value={formData.old_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, old_name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Name used prior to change"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Name</label>
+                        <input
+                          type="text"
+                          value={formData.new_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, new_name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Name adopted or confirmed"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Profession</label>
+                        <input
+                          type="text"
+                          value={formData.profession}
+                          onChange={(e) => setFormData(prev => ({ ...prev, profession: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Current profession/occupation"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Effective Date of Change</label>
+                        <input
+                          type="date"
+                          value={formData.effective_date_of_change}
+                          onChange={(e) => setFormData(prev => ({ ...prev, effective_date_of_change: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gazette Number</label>
+                        <input
+                          type="text"
+                          value={formData.gazette_number}
+                          onChange={(e) => setFormData(prev => ({ ...prev, gazette_number: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., No. 172"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gazette Page</label>
+                        <input
+                          type="number"
+                          value={formData.gazette_page}
+                          onChange={(e) => setFormData(prev => ({ ...prev, gazette_page: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., 3507"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Source Item Number</label>
+                        <input
+                          type="text"
+                          value={formData.source_item_number}
+                          onChange={(e) => setFormData(prev => ({ ...prev, source_item_number: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., 24024"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                      <ReactQuill
+                        value={formData.remarks}
+                        onChange={(value) => setFormData(prev => ({ ...prev, remarks: value }))}
+                        modules={quillModules}
+                        formats={quillFormats}
+                        theme="snow"
+                        style={{ height: '100px', marginBottom: '50px' }}
+                        placeholder="Correction notices or confirmation details"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {formData.gazette_type === 'CHANGE_OF_DATE_OF_BIRTH' && (
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-green-900 mb-4">Change of Date of Birth Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Date of Birth</label>
+                        <input
+                          type="date"
+                          value={formData.old_date_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, old_date_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Date of Birth</label>
+                        <input
+                          type="date"
+                          value={formData.new_date_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, new_date_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Place of Birth</label>
+                        <input
+                          type="text"
+                          value={formData.place_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, place_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Place of birth"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formData.gazette_type === 'CHANGE_OF_PLACE_OF_BIRTH' && (
+                  <div className="bg-orange-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-orange-900 mb-4">Change of Place of Birth Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Place of Birth</label>
+                        <input
+                          type="text"
+                          value={formData.old_place_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, old_place_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Original place of birth"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Place of Birth</label>
+                        <input
+                          type="text"
+                          value={formData.new_place_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, new_place_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="New place of birth"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formData.gazette_type === 'APPOINTMENT_OF_MARRIAGE_OFFICERS' && (
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-purple-900 mb-4">Marriage Officer Appointment Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Officer Name</label>
+                        <input
+                          type="text"
+                          value={formData.officer_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, officer_name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Name of appointed marriage officer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Officer Title</label>
+                        <input
+                          type="text"
+                          value={formData.officer_title}
+                          onChange={(e) => setFormData(prev => ({ ...prev, officer_title: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Title/position"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Appointment Authority</label>
+                        <input
+                          type="text"
+                          value={formData.appointment_authority}
+                          onChange={(e) => setFormData(prev => ({ ...prev, appointment_authority: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Authority making the appointment"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jurisdiction Area</label>
+                        <input
+                          type="text"
+                          value={formData.jurisdiction_area}
+                          onChange={(e) => setFormData(prev => ({ ...prev, jurisdiction_area: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Area of jurisdiction"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      resetForm();
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Create Gazette Entry
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={() => {
+            setShowEditModal(false);
+            setSelectedGazette(null);
+            resetForm();
+          }}
+        >
+          <div
+            className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Gazette Entry</h2>
+              <form onSubmit={handleEditGazette} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.title}
+                      onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                    <select
+                      required
+                      value={formData.gazette_type}
+                      onChange={(e) => setFormData(prev => ({ ...prev, gazette_type: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {gazetteTypes.map(type => (
+                        <option key={type.value} value={type.value}>{type.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <ReactQuill
+                    value={formData.description}
+                    onChange={(value) => setFormData(prev => ({ ...prev, description: value }))}
+                    modules={quillModules}
+                    formats={quillFormats}
+                    theme="snow"
+                    style={{ height: '120px', marginBottom: '50px' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Content *</label>
+                  <ReactQuill
+                    value={formData.content}
+                    onChange={(value) => setFormData(prev => ({ ...prev, content: value }))}
+                    modules={quillModules}
+                    formats={quillFormats}
+                    theme="snow"
+                    style={{ height: '200px', marginBottom: '50px' }}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                    <select
+                      value={formData.priority}
+                      onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {priorityOptions.map(priority => (
+                        <option key={priority.value} value={priority.value}>{priority.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Publication Date *</label>
+                    <input
+                      type="date"
+                      required
+                      value={formData.publication_date}
+                      onChange={(e) => setFormData(prev => ({ ...prev, publication_date: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
+                    <input
+                      type="text"
+                      value={formData.source}
+                      onChange={(e) => setFormData(prev => ({ ...prev, source: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* Dynamic Fields Based on Gazette Type */}
+                {formData.gazette_type === 'CHANGE_OF_NAME' && (
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-blue-900 mb-4">Change of Name Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Item Number</label>
+                        <input
+                          type="text"
+                          value={formData.item_number}
+                          onChange={(e) => setFormData(prev => ({ ...prev, item_number: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., 24024"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Name</label>
+                        <input
+                          type="text"
+                          value={formData.old_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, old_name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Name used prior to change"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Name</label>
+                        <input
+                          type="text"
+                          value={formData.new_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, new_name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Name adopted or confirmed"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Profession</label>
+                        <input
+                          type="text"
+                          value={formData.profession}
+                          onChange={(e) => setFormData(prev => ({ ...prev, profession: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Current profession/occupation"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Effective Date of Change</label>
+                        <input
+                          type="date"
+                          value={formData.effective_date_of_change}
+                          onChange={(e) => setFormData(prev => ({ ...prev, effective_date_of_change: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gazette Number</label>
+                        <input
+                          type="text"
+                          value={formData.gazette_number}
+                          onChange={(e) => setFormData(prev => ({ ...prev, gazette_number: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., No. 172"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Gazette Page</label>
+                        <input
+                          type="number"
+                          value={formData.gazette_page}
+                          onChange={(e) => setFormData(prev => ({ ...prev, gazette_page: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., 3507"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Source Item Number</label>
+                        <input
+                          type="text"
+                          value={formData.source_item_number}
+                          onChange={(e) => setFormData(prev => ({ ...prev, source_item_number: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="e.g., 24024"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+                      <ReactQuill
+                        value={formData.remarks}
+                        onChange={(value) => setFormData(prev => ({ ...prev, remarks: value }))}
+                        modules={quillModules}
+                        formats={quillFormats}
+                        theme="snow"
+                        style={{ height: '100px', marginBottom: '50px' }}
+                        placeholder="Correction notices or confirmation details"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {formData.gazette_type === 'CHANGE_OF_DATE_OF_BIRTH' && (
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-green-900 mb-4">Change of Date of Birth Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Date of Birth</label>
+                        <input
+                          type="date"
+                          value={formData.old_date_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, old_date_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Date of Birth</label>
+                        <input
+                          type="date"
+                          value={formData.new_date_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, new_date_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Place of Birth</label>
+                        <input
+                          type="text"
+                          value={formData.place_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, place_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Place of birth"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formData.gazette_type === 'CHANGE_OF_PLACE_OF_BIRTH' && (
+                  <div className="bg-orange-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-orange-900 mb-4">Change of Place of Birth Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Place of Birth</label>
+                        <input
+                          type="text"
+                          value={formData.old_place_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, old_place_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Original place of birth"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Place of Birth</label>
+                        <input
+                          type="text"
+                          value={formData.new_place_of_birth}
+                          onChange={(e) => setFormData(prev => ({ ...prev, new_place_of_birth: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="New place of birth"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {formData.gazette_type === 'APPOINTMENT_OF_MARRIAGE_OFFICERS' && (
+                  <div className="bg-purple-50 p-4 rounded-lg">
+                    <h3 className="text-lg font-semibold text-purple-900 mb-4">Marriage Officer Appointment Details</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Officer Name</label>
+                        <input
+                          type="text"
+                          value={formData.officer_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, officer_name: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Name of appointed marriage officer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Officer Title</label>
+                        <input
+                          type="text"
+                          value={formData.officer_title}
+                          onChange={(e) => setFormData(prev => ({ ...prev, officer_title: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Title/position"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Appointment Authority</label>
+                        <input
+                          type="text"
+                          value={formData.appointment_authority}
+                          onChange={(e) => setFormData(prev => ({ ...prev, appointment_authority: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Authority making the appointment"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Jurisdiction Area</label>
+                        <input
+                          type="text"
+                          value={formData.jurisdiction_area}
+                          onChange={(e) => setFormData(prev => ({ ...prev, jurisdiction_area: e.target.value }))}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          placeholder="Area of jurisdiction"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditModal(false);
+                      setSelectedGazette(null);
+                      resetForm();
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Update Gazette Entry
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={() => {
+            setShowImportModal(false);
+            resetImportForm();
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+                  <FileSpreadsheet className="h-6 w-6 mr-2 text-green-600" />
+                  Import Gazette Data
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowImportModal(false);
+                    resetImportForm();
+                  }}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+
+              <form onSubmit={handleImport} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Gazette Type
+                  </label>
+                  <select
+                    value={importType}
+                    onChange={(e) => setImportType(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="CHANGE_OF_NAME">Change of Name</option>
+                    <option value="CHANGE_OF_DATE_OF_BIRTH">Change of Date of Birth</option>
+                    <option value="CHANGE_OF_PLACE_OF_BIRTH">Change of Place of Birth</option>
+                    <option value="APPOINTMENT_OF_MARRIAGE_OFFICERS">Appointment of Marriage Officers</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Excel File
+                  </label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <label
+                      htmlFor="file-upload"
+                      className="cursor-pointer flex flex-col items-center"
+                    >
+                      <Upload className="h-12 w-12 text-gray-400 mb-2" />
+                      <span className="text-sm text-gray-600">
+                        {importFile ? importFile.name : 'Click to select Excel file'}
+                      </span>
+                      <span className="text-xs text-gray-500 mt-1">
+                        Supports .xlsx and .xls files
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                {importResult && (
+                  <div className={`p-4 rounded-lg ${
+                    importResult.success
+                      ? 'bg-green-50 border border-green-200'
+                      : 'bg-red-50 border border-red-200'
+                  }`}>
+                    <div className="flex items-center">
+                      {importResult.success ? (
+                        <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+                      ) : (
+                        <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+                      )}
+                      <span className={`text-sm font-medium ${
+                        importResult.success ? 'text-green-800' : 'text-red-800'
+                      }`}>
+                        {importResult.message}
+                      </span>
+                    </div>
+                    {importResult.details && (
+                      <div className="mt-2 text-xs text-gray-600">
+                        <pre className="whitespace-pre-wrap">
+                          {JSON.stringify(importResult.details, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImportModal(false);
+                      resetImportForm();
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                    disabled={importing}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!importFile || importing}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    {importing ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Import Data
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

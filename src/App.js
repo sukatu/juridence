@@ -56,7 +56,7 @@ import VerifySuccess from './pages/VerifySuccess';
 function AppContent() {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
-  
+
   // Pages that should not show header or footer
   const onboardingPages = [
     '/select-role',
@@ -67,21 +67,21 @@ function AppContent() {
     '/signup',
     '/forgot-password'
   ];
-  
+
   // Pages without header and footer (full-screen pages)
   const fullScreenPages = [
     '/gazette-ai-search'
   ];
-  
+
   // Check if current route is an admin, registrar, or corporate client route
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isRegistrarRoute = location.pathname.startsWith('/registrar');
   const isCorporateRoute = location.pathname.startsWith('/corporate');
-  
+
   const shouldShowHeaderFooter = !isHomePage && !onboardingPages.includes(location.pathname) && !fullScreenPages.includes(location.pathname) && !isAdminRoute && !isRegistrarRoute && !isCorporateRoute;
 
   return (
-    <div className="juridence-app min-h-screen bg-slate-50 text-slate-900 transition-colors duration-200 dark:bg-slate-900 dark:text-slate-100">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200">
       {shouldShowHeaderFooter && <Header />}
       <main>
             <Routes>

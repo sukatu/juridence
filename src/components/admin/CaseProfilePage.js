@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ArrowUpDown, CalendarDays, ChevronLeft, ChevronRight, Edit, FileSearch, FileText, Filter, Landmark, Loader2, Plus, Search, Trash2, X } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Search, ChevronDown, Bell, ChevronRight, ChevronLeft, Filter, ArrowUpDown, FileText, Edit, Trash2, Plus } from 'lucide-react';
 import RegistrarCaseDetailsPage from '../RegistrarCaseDetailsPage';
 import AddNewCaseForm from '../AddNewCaseForm';
 import AdminHeader from './AdminHeader';
@@ -8,20 +8,10 @@ import NotificationContainer from '../NotificationContainer';
 import useNotifications from '../../hooks/useNotifications';
 import { apiGet, apiPost, apiPut, apiDelete } from '../../utils/api';
 import ConfirmDialog from './ConfirmDialog';
-import { Badge, Button, IconButton, Input, PageHeader, Select } from '../ui';
-
-const getStatusPresentation = (rawStatus) => {
-  const status = String(rawStatus || '').toLowerCase();
-  if (['active', '1', 'open', 'ongoing'].includes(status)) return { label: 'Active', variant: 'info' };
-  if (['heard', 'completed', 'closed'].includes(status)) return { label: status === 'closed' ? 'Closed' : 'Heard', variant: 'success' };
-  if (status === 'adjourned') return { label: 'Adjourned', variant: 'warning' };
-  if (status === 'pending') return { label: 'Pending', variant: 'warning' };
-  if (['dismissed', 'rejected'].includes(status)) return { label: 'Dismissed', variant: 'danger' };
-  return { label: rawStatus || 'Not set', variant: 'neutral' };
-};
 
 const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState('All');
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [activeTab, setActiveTab] = useState('All');
@@ -35,17 +25,17 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
   const [caseToDelete, setCaseToDelete] = useState(null);
   const filterDropdownRef = useRef(null);
   const sortDropdownRef = useRef(null);
-  
+
   // Filter states
   const [filterCourtType, setFilterCourtType] = useState('');
   const [filterRegion, setFilterRegion] = useState('');
   const [filterYear, setFilterYear] = useState('');
-  
+
   // Sort states
   const [sortBy, setSortBy] = useState('date'); // date, title, status, suit_reference_number
   const [sortOrder, setSortOrder] = useState('desc'); // asc, desc
   const { notifications, showSuccess, showError, removeNotification } = useNotifications();
-  
+
   // Data states
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -111,11 +101,11 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
         page: currentPage.toString(),
         limit: '20'
       });
-      
+
       if (searchQuery.trim()) {
         params.append('query', searchQuery.trim());
       }
-      
+
       // Map activeTab to status filter
       if (activeTab === 'Open') {
         params.append('status', 'active');
@@ -126,7 +116,7 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
       } else if (activeTab === 'Heard') {
         params.append('status', 'heard');
       }
-      
+
       // Add filter parameters
       if (filterCourtType) {
         params.append('court_type', filterCourtType);
@@ -137,7 +127,7 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
       if (filterYear) {
         params.append('year', filterYear);
       }
-      
+
       // Add sort parameters
       if (sortBy) {
         params.append('sort_by', sortBy);
@@ -145,11 +135,11 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
       if (sortOrder) {
         params.append('sort_order', sortOrder);
       }
-      
+
       console.log('Fetching cases from:', `/cases?${params.toString()}`);
       const response = await apiGet(`/cases?${params.toString()}`);
       console.log('Cases response:', response);
-      
+
       if (response && response.cases) {
         console.log('Setting cases:', response.cases.length);
         setCases(response.cases);
@@ -177,6 +167,17 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
     try {
       const date = new Date(dateString);
       return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch {
+      return dateString;
+    }
+  };
+
+  // Format date for display
+  const formatDateLong = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     } catch {
       return dateString;
     }
@@ -320,284 +321,574 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
   // Calculate pagination display
   const startItem = (currentPage - 1) * 20 + 1;
   const endItem = Math.min(currentPage * 20, totalCases);
-  const activeFilterCount = [filterCourtType, filterRegion, filterYear].filter(Boolean).length;
-  const pageNumbers = Array.from({ length: Math.min(5, totalPages) }, (_, index) => {
-    if (totalPages <= 5) return index + 1;
-    if (currentPage <= 3) return index + 1;
-    if (currentPage >= totalPages - 2) return totalPages - 4 + index;
-    return currentPage - 2 + index;
-  });
-
-  const clearFilters = () => {
-    setFilterCourtType('');
-    setFilterRegion('');
-    setFilterYear('');
-    setCurrentPage(1);
-  };
 
   return (
-    <div className="min-h-screen bg-[#f4f7f8]">
-      <HeaderComponent userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Case profiles" />
+    <div className="bg-[#F7F8FA] min-h-screen">
+      {/* Full Width Header */}
+      <HeaderComponent userInfo={displayUserInfo} onNavigate={onNavigate} onLogout={onLogout} />
 
-      <main className="mx-auto max-w-[1440px] px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
-        <PageHeader
-          eyebrow={isRegistrar ? 'High Court (Commercial)' : 'Legal records'}
-          title="Case profiles"
-          description="Search, review, and maintain case records across the Juridence database."
-          actions={(
-            <>
-              <Button variant="outline" icon={<CalendarDays size={16} />} onClick={() => onNavigate('case-hearings')}>View cause list</Button>
-              <Button icon={<Plus size={16} />} onClick={() => setShowAddCaseForm(true)}>Add case</Button>
-            </>
-          )}
-        />
+      {/* Page Title Section - Only show for registrar */}
+      {isRegistrar && (
+        <div className="px-6 mb-4">
+          <div className="flex flex-col items-start gap-1">
+            <span className="text-[#050F1C] text-xl font-medium">High Court (Commercial),</span>
+            <span className="text-[#050F1C] text-base opacity-75">Track all your activities here.</span>
+          </div>
+        </div>
+      )}
 
-        <section className="relative overflow-visible rounded-md border border-[#dce5e9] bg-white shadow-[0_3px_12px_rgba(10,35,53,0.04)]" aria-labelledby="case-records-heading">
-          <div className="flex flex-col gap-4 border-b border-[#e3eaed] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[#e7f0f8] text-[#245b8f]"><FileText size={19} /></span>
-              <div>
-                <h2 id="case-records-heading" className="font-semibold text-[#17334a]">Case records</h2>
-                <p className="mt-0.5 text-xs text-[#71818a]">{totalCases.toLocaleString()} records in the current view</p>
+      {/* Main Content */}
+      <div className="px-6 w-full">
+        <div className="flex flex-col bg-white p-4 gap-6 rounded-lg w-full">
+          {/* Header Section */}
+          <div className="flex flex-col gap-6">
+            <span className="text-[#525866] text-xs opacity-75">CASE PROFILE</span>
+
+            <div className="flex items-center gap-1">
+              <ChevronRight className="w-4 h-4 text-[#050F1C] rotate-180" />
+              <FileText className="w-4 h-4 text-[#050F1C]" />
+              <span className="text-[#050F1C] text-xl font-semibold">Cases</span>
+            </div>
+            <span className="text-[#070810] text-sm opacity-75">
+              All cases in the High Court (Commercial) database.
+            </span>
+          </div>
+
+          {/* Stats Card and Action Buttons */}
+          <div className="flex justify-between items-center gap-4">
+            {/* Stats Card */}
+            <div className="w-[271.5px] p-2 bg-white rounded-lg border border-[#D4E1EA] flex items-center gap-3">
+              <div className="p-2 bg-[#F7F8FA] rounded-lg">
+                <FileText className="w-6 h-6 text-[#868C98]" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[#868C98] text-xs">Total number of Cases</span>
+                <span className="text-[#F59E0B] text-base font-medium">{totalCases.toLocaleString()}</span>
               </div>
             </div>
-            <p className="text-xs text-[#71818a]">Showing {cases.length > 0 ? `${startItem}-${endItem}` : '0'} of {totalCases.toLocaleString()}</p>
-          </div>
 
-          <div className="overflow-x-auto border-b border-[#e3eaed] px-4 pt-2 sm:px-6" role="tablist" aria-label="Case status">
-            <div className="flex min-w-max gap-1">
-              {['All', 'Open', 'Pending', 'Adjourned', 'Heard'].map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`relative h-11 px-3 text-sm font-semibold transition-colors ${activeTab === tab ? 'text-[#0c6b4a]' : 'text-[#60737d] hover:text-[#17334a]'}`}
-                >
-                  {tab}
-                  {activeTab === tab && <span className="absolute inset-x-2 bottom-0 h-0.5 bg-[#17875a]" />}
-                </button>
-              ))}
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onNavigate('case-hearings')}
+                className="w-[271.5px] h-[42px] px-2.5 rounded-lg border-2 border-[#0F2847] text-[#022658] text-base font-bold hover:opacity-90 transition-opacity"
+                style={{ boxShadow: '0px 4px 4px rgba(5, 15, 28, 0.10)' }}
+              >
+                View Cause List
+              </button>
+              <button
+                onClick={() => setShowAddCaseForm(true)}
+                className="w-[271.5px] h-[42px] px-2.5 rounded-lg border-4 border-[#0F284726] text-white text-base font-bold hover:opacity-90 transition-opacity"
+                style={{
+                  background: 'linear-gradient(180deg, #022658 43%, #1A4983 100%)',
+                  boxShadow: '0px 4px 4px rgba(5, 15, 28, 0.10)'
+                }}
+              >
+                Add New Case
+              </button>
             </div>
           </div>
 
-          <div className="border-b border-[#e3eaed] px-4 py-4 sm:px-6">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search by case title, suit number, or party"
-                leadingIcon={<Search size={17} />}
-                className="w-full lg:max-w-xl"
-                aria-label="Search case profiles"
-              />
+          {/* Tabs */}
+          <div className="flex items-center gap-4 border-b border-transparent">
+            <button
+              onClick={() => setActiveTab('All')}
+              className={`pb-2 px-0 text-base transition-colors ${
+                activeTab === 'All'
+                  ? 'text-[#022658] border-b-4 border-[#022658] font-bold'
+                  : 'text-[#525866] font-normal'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setActiveTab('Open')}
+              className={`pb-2 px-0 text-base transition-colors ${
+                activeTab === 'Open'
+                  ? 'text-[#022658] border-b-4 border-[#022658] font-bold'
+                  : 'text-[#525866] font-normal'
+              }`}
+            >
+              Open
+            </button>
+            <button
+              onClick={() => setActiveTab('Pending')}
+              className={`pb-2 px-0 text-base transition-colors ${
+                activeTab === 'Pending'
+                  ? 'text-[#022658] border-b-4 border-[#022658] font-bold'
+                  : 'text-[#525866] font-normal'
+              }`}
+            >
+              Pending
+            </button>
+            <button
+              onClick={() => setActiveTab('Adjourned')}
+              className={`pb-2 px-0 text-base transition-colors ${
+                activeTab === 'Adjourned'
+                  ? 'text-[#022658] border-b-4 border-[#022658] font-bold'
+                  : 'text-[#525866] font-normal'
+              }`}
+            >
+              Adjourned
+            </button>
+            <button
+              onClick={() => setActiveTab('Heard')}
+              className={`pb-2 px-0 text-base transition-colors ${
+                activeTab === 'Heard'
+                  ? 'text-[#022658] border-b-4 border-[#022658] font-bold'
+                  : 'text-[#525866] font-normal'
+              }`}
+            >
+              Heard
+            </button>
+          </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <div ref={filterDropdownRef} className="relative">
-                  <Button
-                    variant={activeFilterCount ? 'secondary' : 'outline'}
-                    icon={<Filter size={16} />}
-                    onClick={() => {
-                      setShowFilterDropdown((open) => !open);
+          {/* Search and Filter Section */}
+          <div className="flex flex-col gap-4 w-full">
+            <div className="flex justify-between items-start gap-2 w-full">
+              {/* Search Bar */}
+              <div className="relative flex-1 max-w-[490px]">
+                <Search className="absolute left-2.5 top-2.5 w-3 h-3 text-[#868C98]" />
+                <input
+                  type="text"
+                  placeholder="Search Case"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full h-[31px] pl-8 pr-3 py-2 bg-[#F7F8FA] rounded-[5.8px] border border-[#F7F8FA] text-[#868C98] text-[10px] font-normal outline-none focus:border-[#022658]"
+                />
+              </div>
+
+              {/* Filter and Sort */}
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                {/* Filter Button */}
+                <div className="relative" ref={filterDropdownRef}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowFilterDropdown(!showFilterDropdown);
                       setShowSortDropdown(false);
                     }}
+                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded border transition-colors ${
+                      (filterCourtType || filterRegion || filterYear)
+                        ? 'border-[#022658] bg-[#022658] text-white'
+                        : 'border-[#D4E1EA] hover:bg-gray-50'
+                    }`}
                   >
-                    Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
-                  </Button>
+                    <Filter className={`w-3 h-3 ${(filterCourtType || filterRegion || filterYear) ? 'text-white' : 'text-[#868C98]'}`} />
+                    <span className={`text-xs font-normal ${(filterCourtType || filterRegion || filterYear) ? 'text-white' : 'text-[#525866]'}`}>
+                      Filter
+                      {(filterCourtType || filterRegion || filterYear) && (
+                        <span className="ml-1 bg-white text-[#022658] rounded-full px-1 text-[10px]">
+                          {(filterCourtType ? 1 : 0) + (filterRegion ? 1 : 0) + (filterYear ? 1 : 0)}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDown className={`w-3 h-3 transition-transform ${showFilterDropdown ? 'rotate-180' : ''} ${(filterCourtType || filterRegion || filterYear) ? 'text-white' : 'text-[#868C98]'}`} />
+                  </button>
+
                   {showFilterDropdown && (
-                    <div className="absolute left-0 z-40 mt-2 w-[300px] max-w-[calc(100vw-32px)] rounded-md border border-[#d7e1e5] bg-white p-4 shadow-[0_14px_36px_rgba(10,35,53,0.16)] sm:left-auto sm:right-0">
-                      <div className="space-y-4">
-                        <Select label="Court type" value={filterCourtType} onChange={(event) => { setFilterCourtType(event.target.value); setCurrentPage(1); }}>
-                          <option value="">All court types</option>
-                          <option value="SC">Supreme Court</option>
-                          <option value="CA">Court of Appeal</option>
-                          <option value="HC">High Court</option>
-                          <option value="CC">Circuit Court</option>
-                          <option value="DC">District Court</option>
-                        </Select>
-                        <Select label="Region" value={filterRegion} onChange={(event) => { setFilterRegion(event.target.value); setCurrentPage(1); }}>
-                          <option value="">All regions</option>
-                          {['Greater Accra Region', 'Ashanti Region', 'Western Region', 'Western North Region', 'Eastern Region', 'Central Region', 'Northern Region', 'Volta Region', 'Upper East Region', 'Upper West Region', 'Bono Region', 'Ahafo Region', 'Bono East Region', 'Oti Region', 'Savannah Region', 'North East Region'].map((region) => <option key={region} value={region}>{region}</option>)}
-                        </Select>
-                        <Input label="Year" value={filterYear} maxLength={4} inputMode="numeric" placeholder="YYYY" onChange={(event) => { setFilterYear(event.target.value.replace(/\D/g, '').slice(0, 4)); setCurrentPage(1); }} />
-                      </div>
-                      <div className="mt-4 flex items-center justify-between border-t border-[#e3eaed] pt-3">
-                        <Button variant="ghost" size="sm" disabled={!activeFilterCount} onClick={clearFilters}>Clear</Button>
-                        <Button size="sm" onClick={() => setShowFilterDropdown(false)}>Done</Button>
+                    <div className="absolute right-0 mt-2 bg-white border border-[#D4E1EA] rounded-lg shadow-lg z-[100] min-w-[200px] p-3">
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <label className="text-[#050F1C] text-xs font-medium mb-1 block">Court Type</label>
+                          <select
+                            value={filterCourtType}
+                            onChange={(e) => {
+                              setFilterCourtType(e.target.value);
+                              setCurrentPage(1);
+                              setShowFilterDropdown(false);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full h-8 px-2 rounded border border-[#B1B9C6] text-[#525866] text-xs outline-none focus:border-[#022658]"
+                          >
+                            <option value="">All Court Types</option>
+                            <option value="SC">Supreme Court</option>
+                            <option value="CA">Court of Appeal</option>
+                            <option value="HC">High Court</option>
+                            <option value="CC">Circuit Court</option>
+                            <option value="DC">District Court</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[#050F1C] text-xs font-medium mb-1 block">Region</label>
+                          <select
+                            value={filterRegion}
+                            onChange={(e) => {
+                              setFilterRegion(e.target.value);
+                              setCurrentPage(1);
+                              setShowFilterDropdown(false);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full h-8 px-2 rounded border border-[#B1B9C6] text-[#525866] text-xs outline-none focus:border-[#022658]"
+                          >
+                            <option value="">All Regions</option>
+                            <option value="Greater Accra Region">Greater Accra Region</option>
+                            <option value="Ashanti Region">Ashanti Region</option>
+                            <option value="Western Region">Western Region</option>
+                            <option value="Western North Region">Western North Region</option>
+                            <option value="Eastern Region">Eastern Region</option>
+                            <option value="Central Region">Central Region</option>
+                            <option value="Northern Region">Northern Region</option>
+                            <option value="Volta Region">Volta Region</option>
+                            <option value="Upper East Region">Upper East Region</option>
+                            <option value="Upper West Region">Upper West Region</option>
+                            <option value="Bono Region">Bono Region</option>
+                            <option value="Ahafo Region">Ahafo Region</option>
+                            <option value="Bono East Region">Bono East Region</option>
+                            <option value="Oti Region">Oti Region</option>
+                            <option value="Savannah Region">Savannah Region</option>
+                            <option value="North East Region">North East Region</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[#050F1C] text-xs font-medium mb-1 block">Year</label>
+                          <input
+                            type="text"
+                            placeholder="YYYY"
+                            value={filterYear}
+                            onChange={(e) => {
+                              setFilterYear(e.target.value);
+                              setCurrentPage(1);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            maxLength="4"
+                            className="w-full h-8 px-2 rounded border border-[#B1B9C6] text-[#525866] text-xs outline-none focus:border-[#022658]"
+                          />
+                        </div>
+
+                        {(filterCourtType || filterRegion || filterYear) && (
+                          <button
+                            onClick={() => {
+                              setFilterCourtType('');
+                              setFilterRegion('');
+                              setFilterYear('');
+                              setCurrentPage(1);
+                            }}
+                            className="w-full h-8 px-2 rounded border border-red-300 text-red-600 text-xs hover:bg-red-50 transition-colors"
+                          >
+                            Clear Filters
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
 
-                <div ref={sortDropdownRef} className="relative">
-                  <Button
-                    variant="outline"
-                    icon={<ArrowUpDown size={16} />}
-                    onClick={() => {
-                      setShowSortDropdown((open) => !open);
+                {/* Sort Button */}
+                <div className="relative" ref={sortDropdownRef}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowSortDropdown(!showSortDropdown);
                       setShowFilterDropdown(false);
                     }}
+                    className="flex items-center gap-1.5 px-2.5 py-2 rounded border border-[#D4E1EA] hover:bg-gray-50 transition-colors"
                   >
-                    Sort
-                  </Button>
+                    <ArrowUpDown className="w-3 h-3 text-[#868C98]" />
+                    <span className="text-[#525866] text-xs font-normal">Sort</span>
+                    <ChevronDown className={`w-3 h-3 text-[#868C98] transition-transform ${showSortDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+
                   {showSortDropdown && (
-                    <div className="absolute left-0 z-40 mt-2 w-60 max-w-[calc(100vw-32px)] rounded-md border border-[#d7e1e5] bg-white p-4 shadow-[0_14px_36px_rgba(10,35,53,0.16)] sm:left-auto sm:right-0">
-                      <div className="space-y-4">
-                        <Select label="Sort by" value={sortBy} onChange={(event) => { setSortBy(event.target.value); setCurrentPage(1); }}>
-                          <option value="date">Date filed</option>
-                          <option value="title">Case title</option>
-                          <option value="suit_reference_number">Suit number</option>
-                          <option value="status">Status</option>
-                          <option value="updated_at">Last updated</option>
-                        </Select>
-                        <Select label="Order" value={sortOrder} onChange={(event) => { setSortOrder(event.target.value); setCurrentPage(1); }}>
-                          <option value="desc">Descending</option>
-                          <option value="asc">Ascending</option>
-                        </Select>
+                    <div className="absolute right-0 mt-2 bg-white border border-[#D4E1EA] rounded-lg shadow-lg z-[100] min-w-[200px] p-3">
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <label className="text-[#050F1C] text-xs font-medium mb-1 block">Sort By</label>
+                          <select
+                            value={sortBy}
+                            onChange={(e) => {
+                              setSortBy(e.target.value);
+                              setCurrentPage(1);
+                              setShowSortDropdown(false);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full h-8 px-2 rounded border border-[#B1B9C6] text-[#525866] text-xs outline-none focus:border-[#022658]"
+                          >
+                            <option value="date">Date Filed</option>
+                            <option value="title">Title</option>
+                            <option value="suit_reference_number">Suit Number</option>
+                            <option value="status">Status</option>
+                            <option value="updated_at">Last Updated</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[#050F1C] text-xs font-medium mb-1 block">Order</label>
+                          <select
+                            value={sortOrder}
+                            onChange={(e) => {
+                              setSortOrder(e.target.value);
+                              setCurrentPage(1);
+                              setShowSortDropdown(false);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full h-8 px-2 rounded border border-[#B1B9C6] text-[#525866] text-xs outline-none focus:border-[#022658]"
+                          >
+                            <option value="desc">Descending</option>
+                            <option value="asc">Ascending</option>
+                          </select>
+                        </div>
                       </div>
-                      <div className="mt-4 flex justify-end border-t border-[#e3eaed] pt-3"><Button size="sm" onClick={() => setShowSortDropdown(false)}>Done</Button></div>
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
 
-                {(searchQuery || activeFilterCount > 0) && (
-                  <Button variant="ghost" icon={<X size={15} />} onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear</Button>
+            {/* Table */}
+            <div className="overflow-hidden rounded-[14px] border border-[#E5E8EC] w-full">
+              {/* Table Header */}
+              <div className="bg-[#F4F6F9] py-4 px-2">
+                <div className="flex items-center gap-3 w-full">
+                  <div className="flex-[2.8] min-w-[280px] px-2">
+                    <span className="text-[#070810] text-sm font-bold">Title</span>
+                  </div>
+                  <div className="flex-[1.2] min-w-[120px] px-2">
+                    <span className="text-[#070810] text-sm font-bold">Suit No.</span>
+                  </div>
+                  <div className="flex-1 min-w-[110px] px-2">
+                    <span className="text-[#070810] text-sm font-bold">Filed on</span>
+                  </div>
+                  <div className="flex-[1.4] min-w-[140px] px-2">
+                    <span className="text-[#070810] text-sm font-bold">Last updated</span>
+                  </div>
+                  <div className="flex-[1.6] min-w-[160px] px-2">
+                    <span className="text-[#070810] text-sm font-bold">Judge</span>
+                  </div>
+                  <div className="flex-1 min-w-[110px] px-2 flex justify-center">
+                    <span className="text-[#070810] text-sm font-bold">Status</span>
+                  </div>
+                  <div className="flex-[0.8] min-w-[80px] px-2 flex justify-center">
+                    <span className="text-[#070810] text-sm font-bold">Actions</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Body */}
+              <div className="bg-white w-full">
+                {loading ? (
+                  <div className="py-12 text-center">
+                    <span className="text-[#525866] text-sm">Loading cases...</span>
+                  </div>
+                ) : cases.length === 0 ? (
+                  <div className="py-12 text-center">
+                    <span className="text-[#525866] text-sm">No cases found</span>
+                  </div>
+                ) : (
+                  cases.map((caseItem, index) => (
+                    <div
+                      key={caseItem.id}
+                      className={`flex items-center gap-3 py-3 px-2 w-full hover:bg-gray-50 transition-colors ${
+                        index < cases.length - 1 ? 'border-b border-[#E5E8EC]' : ''
+                      }`}
+                    >
+                      <div
+                        className="flex-[2.8] min-w-[280px] px-2 cursor-pointer"
+                        onClick={() => handleCaseClick(caseItem)}
+                      >
+                        <span className="text-[#070810] text-sm font-normal">{caseItem.title || 'N/A'}</span>
+                      </div>
+                      <div
+                        className="flex-[1.2] min-w-[120px] px-2 cursor-pointer"
+                        onClick={() => handleCaseClick(caseItem)}
+                      >
+                        <span className="text-[#070810] text-sm font-normal">{caseItem.suit_reference_number || 'N/A'}</span>
+                      </div>
+                      <div
+                        className="flex-1 min-w-[110px] px-2 cursor-pointer"
+                        onClick={() => handleCaseClick(caseItem)}
+                      >
+                        <span className="text-[#070810] text-sm font-normal">{formatDate(caseItem.date)}</span>
+                      </div>
+                      <div
+                        className="flex-[1.4] min-w-[140px] px-2 cursor-pointer"
+                        onClick={() => handleCaseClick(caseItem)}
+                      >
+                        <span className="text-[#070810] text-sm font-normal">{formatDate(caseItem.updated_at)}</span>
+                      </div>
+                      <div
+                        className="flex-[1.6] min-w-[160px] px-2 cursor-pointer"
+                        onClick={() => handleCaseClick(caseItem)}
+                      >
+                        <span className="text-[#070810] text-sm font-normal">{caseItem.presiding_judge || 'N/A'}</span>
+                      </div>
+                      <div className="flex-1 min-w-[110px] px-2 flex justify-center">
+                        {(() => {
+                          const status = caseItem.status?.toLowerCase() || '';
+                          let bgColor = '';
+                          let textColor = '';
+                          let displayStatus = caseItem.status || 'N/A';
+
+                          // Map status to color codes
+                          if (status === 'active' || status === '1' || status === 'open' || status === 'ongoing') {
+                            bgColor = 'bg-blue-50';
+                            textColor = 'text-blue-600';
+                            displayStatus = 'Active';
+                          } else if (status === 'heard' || status === 'completed' || status === 'closed') {
+                            bgColor = 'bg-green-50';
+                            textColor = 'text-green-600';
+                            displayStatus = status === 'closed' ? 'Closed' : 'Heard';
+                          } else if (status === 'adjourned') {
+                            bgColor = 'bg-yellow-50';
+                            textColor = 'text-yellow-600';
+                            displayStatus = 'Adjourned';
+                          } else if (status === 'pending') {
+                            bgColor = 'bg-orange-50';
+                            textColor = 'text-orange-600';
+                            displayStatus = 'Pending';
+                          } else if (status === 'dismissed' || status === 'rejected') {
+                            bgColor = 'bg-red-50';
+                            textColor = 'text-red-600';
+                            displayStatus = 'Dismissed';
+                          } else {
+                            bgColor = 'bg-gray-50';
+                            textColor = 'text-gray-600';
+                          }
+
+                          return (
+                            <span className={`text-xs font-medium px-2 py-1 rounded whitespace-nowrap ${bgColor} ${textColor}`}>
+                              {displayStatus}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex-[0.8] min-w-[80px] px-2 flex justify-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditCase(caseItem);
+                          }}
+                          className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+                          title="Edit"
+                        >
+                          <Edit className="w-4 h-4 text-[#022658]" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCase(caseItem);
+                          }}
+                          className="p-1.5 rounded hover:bg-red-100 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
 
-            {activeFilterCount > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {filterCourtType && <button type="button" onClick={() => setFilterCourtType('')} className="flex min-h-8 items-center gap-1.5 rounded-md bg-[#eef4f5] px-2.5 text-xs font-medium text-[#405867]">Court: {filterCourtType}<X size={13} /></button>}
-                {filterRegion && <button type="button" onClick={() => setFilterRegion('')} className="flex min-h-8 items-center gap-1.5 rounded-md bg-[#eef4f5] px-2.5 text-xs font-medium text-[#405867]">{filterRegion}<X size={13} /></button>}
-                {filterYear && <button type="button" onClick={() => setFilterYear('')} className="flex min-h-8 items-center gap-1.5 rounded-md bg-[#eef4f5] px-2.5 text-xs font-medium text-[#405867]">Year: {filterYear}<X size={13} /></button>}
-              </div>
-            )}
-          </div>
+            {/* Pagination */}
+            <div className="flex justify-between items-center">
+              <span className="text-[#525866] text-sm text-right">
+                {cases.length > 0 ? `${startItem}-${endItem} of ${totalCases.toLocaleString()}` : '0-0 of 0'}
+              </span>
 
-          {loading ? (
-            <div className="flex min-h-[320px] items-center justify-center gap-3 text-sm text-[#60737d]"><Loader2 size={20} className="animate-spin text-[#17875a]" /> Loading case records</div>
-          ) : cases.length === 0 ? (
-            <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#eef4f5] text-[#607985]"><FileSearch size={22} /></span>
-              <h3 className="mt-4 font-semibold text-[#17334a]">No cases found</h3>
-              <p className="mt-1 max-w-md text-sm leading-6 text-[#71818a]">Adjust the search or filters to broaden the case list.</p>
-            </div>
-          ) : (
-            <>
-              <div className="hidden overflow-x-auto lg:block">
-                <table className="w-full min-w-[1040px] table-fixed">
-                  <thead className="bg-[#f5f8f9]">
-                    <tr>
-                      <th className="w-[30%] px-5 py-3 text-left">Case title</th>
-                      <th className="w-[13%] px-4 py-3 text-left">Suit number</th>
-                      <th className="w-[10%] px-4 py-3 text-left">Filed</th>
-                      <th className="w-[11%] px-4 py-3 text-left">Updated</th>
-                      <th className="w-[16%] px-4 py-3 text-left">Judge</th>
-                      <th className="w-[10%] px-4 py-3 text-left">Status</th>
-                      <th className="w-[10%] px-4 py-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#e7edef]">
-                    {cases.map((caseItem) => {
-                      const status = getStatusPresentation(caseItem.status);
-                      return (
-                        <tr key={caseItem.id} className="transition-colors hover:bg-[#f8faf9]">
-                          <td className="px-5 py-4 align-top">
-                            <button type="button" onClick={() => handleCaseClick(caseItem)} className="min-h-0 text-left text-sm font-semibold leading-5 text-[#17334a] hover:text-[#0c6b4a]">{caseItem.title || 'Untitled case'}</button>
-                            {(caseItem.court_type || caseItem.town) && <p className="mt-1 text-xs text-[#829099]">{[caseItem.court_type, caseItem.town].filter(Boolean).join(' · ')}</p>}
-                          </td>
-                          <td className="px-4 py-4 align-top text-sm font-medium text-[#405867]">{caseItem.suit_reference_number || 'Not recorded'}</td>
-                          <td className="px-4 py-4 align-top text-sm text-[#526773]">{formatDate(caseItem.date)}</td>
-                          <td className="px-4 py-4 align-top text-sm text-[#526773]">{formatDate(caseItem.updated_at)}</td>
-                          <td className="px-4 py-4 align-top text-sm text-[#526773]">{caseItem.presiding_judge || 'Not assigned'}</td>
-                          <td className="px-4 py-4 align-top"><Badge variant={status.variant}>{status.label}</Badge></td>
-                          <td className="px-4 py-3 align-top">
-                            <div className="flex justify-end gap-1">
-                              <IconButton label="Edit case" variant="ghost" size="sm" onClick={() => handleEditCase(caseItem)}><Edit size={16} /></IconButton>
-                              <IconButton label="Delete case" variant="ghost" size="sm" className="text-[#b52f3f] hover:!bg-[#fff0f1]" onClick={() => handleDeleteCase(caseItem)}><Trash2 size={16} /></IconButton>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <div className="flex items-center gap-10">
+                {/* Page Numbers */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                    className="flex items-center gap-1 h-8 px-3 py-2 bg-white rounded border border-[#D4E1EA] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-[#868C98]" />
+                    <span className="text-[#525866] text-xs font-normal">Back</span>
+                  </button>
 
-              <div className="divide-y divide-[#e7edef] lg:hidden">
-                {cases.map((caseItem) => {
-                  const status = getStatusPresentation(caseItem.status);
-                  return (
-                    <article key={caseItem.id} className="px-4 py-5 sm:px-6">
-                      <div className="flex items-start justify-between gap-3">
-                        <Badge variant={status.variant}>{status.label}</Badge>
-                        <div className="flex gap-1">
-                          <IconButton label="Edit case" variant="ghost" size="sm" onClick={() => handleEditCase(caseItem)}><Edit size={16} /></IconButton>
-                          <IconButton label="Delete case" variant="ghost" size="sm" className="text-[#b52f3f]" onClick={() => handleDeleteCase(caseItem)}><Trash2 size={16} /></IconButton>
-                        </div>
-                      </div>
-                      <button type="button" onClick={() => handleCaseClick(caseItem)} className="mt-3 min-h-0 w-full text-left text-[15px] font-semibold leading-6 text-[#17334a]">{caseItem.title || 'Untitled case'}</button>
-                      <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
-                        <div><dt className="text-xs text-[#7a8991]">Suit number</dt><dd className="mt-1 break-words font-semibold text-[#405867]">{caseItem.suit_reference_number || 'Not recorded'}</dd></div>
-                        <div><dt className="flex items-center gap-1 text-xs text-[#7a8991]"><CalendarDays size={13} /> Filed</dt><dd className="mt-1 font-medium text-[#405867]">{formatDate(caseItem.date)}</dd></div>
-                        <div><dt className="text-xs text-[#7a8991]">Last updated</dt><dd className="mt-1 font-medium text-[#405867]">{formatDate(caseItem.updated_at)}</dd></div>
-                        <div><dt className="flex items-center gap-1 text-xs text-[#7a8991]"><Landmark size={13} /> Judge</dt><dd className="mt-1 font-medium text-[#405867]">{caseItem.presiding_judge || 'Not assigned'}</dd></div>
-                      </dl>
-                    </article>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          <div className="flex flex-col gap-4 border-t border-[#e3eaed] px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
-            <p className="text-xs text-[#71818a]">{cases.length > 0 ? `${startItem}-${endItem} of ${totalCases.toLocaleString()}` : '0 records'}</p>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-1.5">
-                <IconButton label="Previous page" variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}><ChevronLeft size={16} /></IconButton>
-                <div className="hidden items-center gap-1 sm:flex">
-                  {pageNumbers.map((pageNumber) => (
-                    <button key={pageNumber} type="button" onClick={() => setCurrentPage(pageNumber)} className={`flex h-9 min-w-9 items-center justify-center rounded-md border px-2 text-xs font-semibold ${currentPage === pageNumber ? 'border-[#0c6b4a] bg-[#0c6b4a] text-white' : 'border-[#d4dfe3] bg-white text-[#526773] hover:bg-[#f2f6f6]'}`}>{pageNumber}</button>
-                  ))}
-                </div>
-                <span className="px-2 text-xs font-medium text-[#526773] sm:hidden">Page {currentPage} of {totalPages}</span>
-                <IconButton label="Next page" variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}><ChevronRight size={16} /></IconButton>
-              </div>
-              <div className="flex items-center gap-2 text-sm text-[#526773]">
-                <span>Go to</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={goToPage}
-                  onChange={(event) => { if (event.target.value === '' || /^\d+$/.test(event.target.value)) setGoToPage(event.target.value); }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      const targetPage = parseInt(goToPage, 10);
-                      if (targetPage >= 1 && targetPage <= totalPages) setCurrentPage(targetPage);
-                      else setGoToPage(currentPage.toString());
+                  {/* Dynamic page numbers */}
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
                     }
-                  }}
-                  className="ui-control !min-h-9 h-9 w-14 px-2 text-center"
-                  aria-label="Go to page"
-                />
-                <Button size="sm" variant="outline" onClick={() => {
-                  const targetPage = parseInt(goToPage, 10);
-                  if (targetPage >= 1 && targetPage <= totalPages) setCurrentPage(targetPage);
-                  else setGoToPage(currentPage.toString());
-                }}>Go</Button>
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`px-2 py-2 rounded border border-[#D4E1EA] text-xs font-normal ${
+                          currentPage === pageNum
+                            ? 'bg-[#022658] text-white'
+                            : 'bg-white text-[#525866] hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+
+                  <button
+                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage === totalPages}
+                    className="flex items-center gap-1 h-8 px-3 py-2 bg-white rounded border border-[#D4E1EA] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="text-[#525866] text-xs font-normal">Next</span>
+                    <ChevronRight className="w-4 h-4 text-[#868C98]" />
+                  </button>
+                </div>
+
+                {/* Go to Page */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[#050F1C] text-sm font-normal">Page</span>
+                  <input
+                    type="text"
+                    value={goToPage}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d+$/.test(value)) {
+                        setGoToPage(value);
+                      }
+                    }}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        const page = parseInt(goToPage);
+                        if (page >= 1 && page <= totalPages) {
+                          setCurrentPage(page);
+                        } else {
+                          setGoToPage(currentPage.toString());
+                        }
+                      }
+                    }}
+                    className="w-[51px] h-8 px-2 py-1 bg-white rounded border border-[#F59E0B] text-[#050F1C] text-sm font-normal outline-none text-center"
+                  />
+                  <button
+                    onClick={() => {
+                      const page = parseInt(goToPage);
+                      if (page >= 1 && page <= totalPages) {
+                        setCurrentPage(page);
+                      } else {
+                        setGoToPage(currentPage.toString());
+                      }
+                    }}
+                    className="text-[#F59E0B] text-sm font-bold hover:underline"
+                  >
+                    Go
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </section>
-      </main>
+        </div>
+      </div>
 
+      {/* Toast Notifications */}
       <NotificationContainer
         notifications={notifications}
         onRemove={removeNotification}
       />
 
+      {/* Delete Confirmation Dialog */}
       <ConfirmDialog
         isOpen={showDeleteConfirm}
         onClose={() => {
@@ -615,4 +906,3 @@ const CaseProfilePage = ({ userInfo, onNavigate, onLogout, isRegistrar }) => {
 };
 
 export default CaseProfilePage;
-

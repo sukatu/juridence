@@ -13,16 +13,16 @@ import {
   LineElement,
 } from 'chart.js';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
-import { 
-  Users, 
-  Key, 
-  FileText, 
-  UserCheck, 
-  Building2, 
-  Shield, 
-  CreditCard, 
-  BarChart3, 
-  Settings, 
+import {
+  Users,
+  Key,
+  FileText,
+  UserCheck,
+  Building2,
+  Shield,
+  CreditCard,
+  BarChart3,
+  Settings,
   LogOut,
   Menu,
   X,
@@ -171,25 +171,25 @@ const AdminDashboard = () => {
       const authStatus = localStorage.getItem('isAuthenticated');
       const userData = localStorage.getItem('userData');
       const isAuth = authStatus === 'true';
-      
+
       setIsAuthenticated(isAuth);
-      
+
       if (isAuth && userData) {
         try {
           const user = JSON.parse(userData);
           setUserInfo(user);
-          
+
           // Check if user is admin from multiple sources (matching login logic)
           const isAdminFromStorage = localStorage.getItem('isAdmin') === 'true';
           const isAdminFromRole = user.role === 'admin' || user.role === 'ADMIN';
           const isAdminFromFlag = user.is_admin === true;
           const isAdminFromUserType = user.user_type === 'administrator';
-          
-          const isAdminUser = isAdminFromStorage || 
-                             isAdminFromRole || 
-                             isAdminFromFlag || 
+
+          const isAdminUser = isAdminFromStorage ||
+                             isAdminFromRole ||
+                             isAdminFromFlag ||
                              isAdminFromUserType;
-          
+
           console.log('AdminDashboard - Admin check:', {
             isAdminFromStorage,
             isAdminFromRole,
@@ -200,9 +200,9 @@ const AdminDashboard = () => {
             isAdmin: user.is_admin,
             finalDecision: isAdminUser
           });
-          
+
           setIsAdmin(isAdminUser);
-          
+
           // Ensure isAdmin flag is set in localStorage if user is admin
           if (isAdminUser) {
             localStorage.setItem('isAdmin', 'true');
@@ -379,7 +379,7 @@ const AdminDashboard = () => {
     localStorage.removeItem('authProvider');
     localStorage.removeItem('accessToken');
     localStorage.removeItem('userData');
-    
+
     window.dispatchEvent(new CustomEvent('authStateChanged'));
     navigate('/');
   };
@@ -429,7 +429,7 @@ const AdminDashboard = () => {
     { id: 'roles', name: 'Roles & Permissions', icon: Shield },
     { id: 'api-keys', name: 'API Keys', icon: Key },
     { id: 'settings', name: 'Settings', icon: Settings },
-    
+
     // Legal & Court Management (6-11)
     { id: 'cases', name: 'Cases', icon: FileText },
     { id: 'case-hearings', name: 'Case Hearing Details', icon: Calendar },
@@ -437,7 +437,7 @@ const AdminDashboard = () => {
     { id: 'courts', name: 'Courts', icon: MapPin },
     { id: 'court-types', name: 'Court Types', icon: Building2 },
     { id: 'gazette', name: 'Gazette', icon: FileText },
-    
+
     // People & Organizations (12-18)
     { id: 'people', name: 'People', icon: UserCheck },
     { id: 'people-relationships', name: 'Relationships', icon: UserCheck },
@@ -446,12 +446,12 @@ const AdminDashboard = () => {
     { id: 'insurance', name: 'Insurance', icon: Shield },
     { id: 'companies', name: 'Companies', icon: Database },
     { id: 'tenants', name: 'Organizations', icon: Globe },
-    
+
     // Financial & Operations (18-20)
     { id: 'payments', name: 'Payments', icon: CreditCard },
     { id: 'subscription-requests', name: 'Subscription Requests', icon: Clock },
     { id: 'file-repository', name: 'File Repository', icon: FolderOpen },
-    
+
     // Advanced Tools (21-24)
     { id: 'ai-analytics', name: 'AI Analytics', icon: Zap },
     { id: 'documentation', name: 'Documentation', icon: BookOpen },
@@ -487,7 +487,7 @@ const AdminDashboard = () => {
       case 'employees':
         return <EmployeeManagement />;
       case 'gazette':
-        return <GazetteManagement userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
+        return <GazetteManagement />;
       case 'gazette-upload':
         return <GazetteUploadPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'gazette-approval':
@@ -541,7 +541,7 @@ const AdminDashboard = () => {
     <div className="min-h-screen bg-slate-50">
       {/* Mobile sidebar backdrop */}
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -551,7 +551,7 @@ const AdminDashboard = () => {
       <div className={`fixed inset-y-0 left-0 z-50 shadow-lg transform transition-all duration-300 ease-in-out lg:translate-x-0 ${
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
       }`}>
-        <AdminNavbar 
+        <AdminNavbar
           activeTab={activeTab}
           setActiveTab={(tab) => {
             setActiveTab(tab);
@@ -567,7 +567,7 @@ const AdminDashboard = () => {
         {/* Mobile menu button */}
         <button
           onClick={() => setIsSidebarOpen(true)}
-          className="fixed left-3.5 top-3.5 z-40 rounded-md border border-[#dce5e9] bg-white p-2 shadow-sm hover:bg-[#f2f6f6] lg:hidden"
+          className="lg:hidden fixed top-4 left-4 z-30 p-2 bg-white rounded-md shadow-lg hover:bg-slate-100"
           aria-label="Open navigation"
         >
           <Menu className="h-5 w-5" />
@@ -618,7 +618,7 @@ const OverviewTab = ({ stats, onRefresh, isRefreshing, isLoadingStats }) => {
           <h2 className="text-2xl font-bold text-slate-900">Dashboard Overview</h2>
           <p className="text-slate-600">Comprehensive analytics and system insights</p>
         </div>
-        <button 
+        <button
           onClick={onRefresh}
           disabled={isRefreshing}
           className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -856,7 +856,7 @@ const OverviewTab = ({ stats, onRefresh, isRefreshing, isLoadingStats }) => {
           <div className="h-64">
             <Doughnut
               data={{
-                labels: Object.keys(stats.riskDistribution).map(level => 
+                labels: Object.keys(stats.riskDistribution).map(level =>
                   level.charAt(0).toUpperCase() + level.slice(1) + ' Risk'
                 ),
                 datasets: [{
@@ -1340,7 +1340,7 @@ const OverviewTab = ({ stats, onRefresh, isRefreshing, isLoadingStats }) => {
               <Globe className="h-4 w-4 mx-auto mb-1" />
               <span style={{ fontFamily: 'Satoshi' }}>Export Data</span>
             </button>
-            <button 
+            <button
               onClick={onRefresh}
               disabled={isRefreshing}
               className="p-3 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"

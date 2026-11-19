@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu } from 'lucide-react';
 import CorporateClientNavbar from '../components/CorporateClientNavbar';
 import CorporateClientDashboardOverview from '../components/CorporateClientDashboardOverview';
 import CorporateClientBillingPage from '../components/CorporateClientBillingPage';
@@ -18,7 +17,6 @@ import LogoutConfirmationModal from '../components/admin/LogoutConfirmationModal
 const CorporateClientDashboard = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
 
@@ -51,7 +49,7 @@ const CorporateClientDashboard = () => {
     localStorage.removeItem('authProvider');
     localStorage.removeItem('accessToken');
     localStorage.removeItem('userData');
-    
+
     window.dispatchEvent(new CustomEvent('authStateChanged'));
     navigate('/');
   };
@@ -69,24 +67,24 @@ const CorporateClientDashboard = () => {
       case 'team':
         return <CorporateClientTeamPage userInfo={userInfo} onNavigate={handleNavigate} onLogout={handleLogout} />;
       case 'persons':
-        return <CorporateClientPersonsPage 
-          userInfo={userInfo} 
-          onNavigate={handleNavigate} 
+        return <CorporateClientPersonsPage
+          userInfo={userInfo}
+          onNavigate={handleNavigate}
           onLogout={handleLogout}
           onSelectIndustry={(industry) => {
             // Handle industry selection - can navigate to entity selector or persons list
             console.log('Selected industry:', industry);
-          }} 
+          }}
         />;
       case 'companies':
-        return <CorporateClientCompaniesPage 
-          userInfo={userInfo} 
-          onNavigate={handleNavigate} 
+        return <CorporateClientCompaniesPage
+          userInfo={userInfo}
+          onNavigate={handleNavigate}
           onLogout={handleLogout}
           onSelectIndustry={(industry) => {
             // Handle industry selection - can navigate to companies list
             console.log('Selected industry:', industry);
-          }} 
+          }}
         />;
       case 'watchlist':
         return <CorporateClientWatchlistPage userInfo={userInfo} onNavigate={handleNavigate} onLogout={handleLogout} />;
@@ -106,27 +104,16 @@ const CorporateClientDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f4f7f8]">
-      {isSidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/45 lg:hidden" onClick={() => setIsSidebarOpen(false)} />
-      )}
+    <div className="min-h-screen bg-[#F7F8FA] flex">
+      {/* Sidebar */}
+      <CorporateClientNavbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        onLogout={handleLogout}
+      />
 
-      <div className={`fixed inset-y-0 left-0 z-50 transform transition-transform duration-200 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <CorporateClientNavbar
-          activeTab={activeTab}
-          setActiveTab={(tab) => {
-            setActiveTab(tab);
-            setIsSidebarOpen(false);
-          }}
-          onLogout={handleLogout}
-        />
-      </div>
-
-      <button type="button" onClick={() => setIsSidebarOpen(true)} className="fixed left-3.5 top-3.5 z-40 border border-[#dce5e9] bg-white p-2 shadow-sm hover:bg-[#f2f6f6] lg:hidden" aria-label="Open navigation">
-        <Menu size={20} />
-      </button>
-
-      <div className="min-h-screen lg:ml-60">
+      {/* Main Content */}
+      <div className="flex-1 overflow-auto">
         {renderContent()}
       </div>
 
@@ -142,4 +129,3 @@ const CorporateClientDashboard = () => {
 };
 
 export default CorporateClientDashboard;
-
