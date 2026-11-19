@@ -7,7 +7,27 @@ $isApiRequest = $requestPath === '/health' || str_starts_with($requestPath, '/ap
 
 if (!$isApiRequest) {
     header('Content-Type: text/html; charset=UTF-8');
-    readfile(__DIR__ . '/index.html');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+
+    $html = file_get_contents(__DIR__ . '/index.html');
+    if ($html === false) {
+        http_response_code(500);
+        echo 'Application interface is temporarily unavailable.';
+        exit;
+    }
+
+    $html = preg_replace_callback(
+        '/(src|href)="(\.\/static\/(?:js|css)\/[^"]+\.(?:js|css))"/',
+        static function (array $matches): string {
+            $assetPath = __DIR__ . '/' . ltrim($matches[2], './');
+            $version = is_file($assetPath) ? (string) filemtime($assetPath) : 'current';
+
+            return $matches[1] . '="' . $matches[2] . '?v=' . $version . '"';
+        },
+        $html
+    );
+
+    echo $html;
     exit;
 }
 
