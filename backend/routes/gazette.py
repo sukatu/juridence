@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func, desc, asc
+from sqlalchemy import Text, and_, asc, cast, desc, func, or_
 from typing import List, Optional
 from datetime import datetime, timedelta
 import math
+import uuid
 
 from database import get_db
 from models.gazette import Gazette, GazetteSearch as GazetteSearchModel, GazetteView
@@ -24,7 +25,49 @@ router = APIRouter(prefix="/gazette", tags=["gazette"])
 @router.post("/", response_model=GazetteResponse)
 def create_gazette(gazette: GazetteCreate, db: Session = Depends(get_db)):
     """Create a new gazette entry"""
-    db_gazette = Gazette(**gazette.dict())
+    payload = gazette.dict()
+    entry_reference = uuid.uuid4().hex[:12]
+    payload["gazette_number"] = payload.get("gazette_number") or "UNSPECIFIED"
+    payload["item_number"] = payload.get("item_number") or f"manual-{entry_reference}"
+    payload["document_filename"] = payload.get("document_filename") or "manual-entry"
+
+    company_notice_types = {
+        GazetteType.COMPANY_WINDING_UP,
+        GazetteType.COMPANY_DISSOLUTION,
+        GazetteType.COMPANY_STRIKE_OFF_INTENTION,
+        GazetteType.EXTERNAL_COMPANY_CESSATION,
+    }
+    if gazette.gazette_type in company_notice_types and not payload.get("company_id"):
+        metadata = payload.get("gazette_metadata") or {}
+        company_name = (
+            metadata.get("company_name")
+            or payload.get("current_name")
+            or payload.get("name_value")
+        )
+        registration_number = metadata.get("registration_number")
+        company = None
+        if registration_number:
+            company = db.query(Companies).filter(
+                Companies.registration_number == registration_number
+            ).first()
+        if not company and company_name:
+            company = db.query(Companies).filter(Companies.name.ilike(company_name)).first()
+        if not company and company_name:
+            company = Companies(
+                name=company_name,
+                registration_number=registration_number or None,
+                address=metadata.get("registered_office") or payload.get("address"),
+                country="Ghana",
+                is_active=True,
+                is_verified=False,
+                notes="Created from Office of the Registrar of Companies notice upload",
+            )
+            db.add(company)
+            db.flush()
+        if company:
+            payload["company_id"] = company.id
+
+    db_gazette = Gazette(**payload)
     db.add(db_gazette)
     db.commit()
     db.refresh(db_gazette)
@@ -162,8 +205,6 @@ def list_gazettes(
         # Build search filter including alias_names JSONB array
         # For JSONB arrays, we need to properly search within array elements
         # Use PostgreSQL's jsonb_array_elements_text function via text()
-        from sqlalchemy import text, literal_column
-        
         # Build the search filter with proper JSONB array handling
         search_conditions = [
             Gazette.title.ilike(search_term),
@@ -190,7 +231,7 @@ def list_gazettes(
             search_conditions.append(
                 and_(
                     Gazette.alias_names.isnot(None),
-                    func.lower(func.cast(Gazette.alias_names, func.text)).like(f"%{search_lower}%")
+                    func.lower(cast(Gazette.alias_names, Text)).like(f"%{search_lower}%")
                 )
             )
         except Exception as e:

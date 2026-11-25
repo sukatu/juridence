@@ -1,1071 +1,572 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Users,
-  Search,
-  Filter,
-  Plus,
+  Building2,
+  Calendar,
+  CheckCircle,
+  Clock,
+  Crown,
+  Download,
   Edit,
-  Trash2,
   Eye,
   Key,
+  Loader2,
+  Lock,
   Mail,
-  Phone,
-  Calendar,
+  Plus,
+  RefreshCw,
+  Search,
   Shield,
   UserCheck,
+  Users,
   UserX,
-  MoreVertical,
-  ChevronLeft,
-  ChevronRight,
   X,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  Download
 } from 'lucide-react';
-import { useToast, ToastContainer } from '../Toast';
-import { apiGet, apiPost, apiPut, apiDelete } from '../../utils/api';
-import AdminHeader from './AdminHeader';
+import { apiGet, apiPost, apiPut } from '../../utils/api';
+import { ToastContainer, useToast } from '../Toast';
 
-const UserManagement = ({ userInfo, onNavigate, onLogout }) => {
-  const { toasts, success, error: showError, warning, info, removeToast } = useToast();
+const PAGE_SIZE = 20;
+
+const EMPTY_STATS = {
+  total_users: 0,
+  active_users: 0,
+  admin_users: 0,
+  regular_users: 0,
+  premium_users: 0,
+  pending_users: 0,
+  inactive_users: 0,
+  suspended_users: 0,
+  never_signed_in: 0,
+  recent_registrations: 0,
+};
+
+const EMPTY_FORM = {
+  email: '',
+  first_name: '',
+  last_name: '',
+  phone_number: '',
+  organization: '',
+  job_title: '',
+  role: 'user',
+  status: 'active',
+  user_type: 'workspace_user',
+  court_type: '',
+  entity_type: '',
+  entity_id: '',
+  password: '',
+  confirm_password: '',
+};
+
+const EMPTY_PASSWORD_FORM = {
+  new_password: '',
+  confirm_password: '',
+  admin_password: '',
+};
+
+const roleLabels = {
+  admin: 'Administrator',
+  user: 'Standard user',
+  premium: 'Premium user',
+};
+
+const accountClassLabels = {
+  administrator: 'Administrator',
+  workspace_user: 'Workspace member',
+  corporate_client: 'Corporate client',
+  court_registrar: 'Court registrar',
+};
+
+const courtLabels = {
+  high_court: 'High Court',
+  supreme_court: 'Supreme Court',
+  court_of_appeal: 'Court of Appeal',
+  circuit_court: 'Circuit Court',
+  district_court: 'District Court',
+};
+
+const entityLabels = {
+  company: 'Company',
+  bank: 'Bank',
+  insurance: 'Insurance provider',
+};
+
+const normalizeRole = (value) => String(value || 'user').toLowerCase();
+const normalizeStatus = (value) => String(value || 'pending').toLowerCase();
+const formatNumber = (value) => Number(value || 0).toLocaleString();
+const fullName = (user) => [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Unnamed user';
+const initials = (user) => `${user?.first_name?.[0] || ''}${user?.last_name?.[0] || ''}`.toUpperCase() || 'U';
+const roleLabel = (role) => roleLabels[normalizeRole(role)] || 'Standard user';
+
+const accountClass = (user) => {
+  if (normalizeRole(user?.role) === 'admin') return 'administrator';
+  return user?.user_type || 'workspace_user';
+};
+
+const accountClassLabel = (user) => accountClassLabels[accountClass(user)] || 'Workspace member';
+
+const formatDateTime = (value) => {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not recorded';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const assignmentLabel = (user) => {
+  const userClass = accountClass(user);
+  if (userClass === 'administrator') return 'Juridence administration';
+  if (userClass === 'court_registrar') return courtLabels[user.court_type] || 'Court not assigned';
+  if (userClass === 'corporate_client') {
+    if (!user.entity_type) return 'Entity not linked';
+    const label = entityLabels[user.entity_type] || user.entity_type;
+    return user.entity_id ? `${label} record ${user.entity_id}` : label;
+  }
+  return 'General workspace';
+};
+
+const errorText = (error, fallback) => error?.data?.detail || error?.detail || error?.message || fallback;
+const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+
+const UserManagement = ({ userInfo }) => {
+  const { toasts, success, error: showError, removeToast } = useToast();
   const [users, setUsers] = useState([]);
+  const [stats, setStats] = useState(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [queryInput, setQueryInput] = useState('');
+  const [query, setQuery] = useState('');
+  const [role, setRole] = useState('all');
+  const [status, setStatus] = useState('all');
+  const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalUsers, setTotalUsers] = useState(0);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [showUserModal, setShowUserModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showPasswordResetModal, setShowPasswordResetModal] = useState(false);
-  const [editingUser, setEditingUser] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [passwordResetData, setPasswordResetData] = useState({
-    new_password: '',
-    confirm_password: '',
-    admin_password: ''
-  });
+  const [modal, setModal] = useState(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [formErrors, setFormErrors] = useState({});
+  const [passwordForm, setPasswordForm] = useState(EMPTY_PASSWORD_FORM);
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  // Statistics
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    activeUsers: 0,
-    inactiveUsers: 0,
-    pendingUsers: 0,
-    adminUsers: 0
-  });
+  const currentEmail = String(userInfo?.email || '').trim().toLowerCase();
+  const isCurrentAccount = useCallback((user) => (
+    Boolean(currentEmail) && String(user?.email || '').trim().toLowerCase() === currentEmail
+  ), [currentEmail]);
 
-  // Form states
-  const [formData, setFormData] = useState({
-    email: '',
-    first_name: '',
-    last_name: '',
-    role: 'user',
-    status: 'active',
-    is_admin: false,
-    password: '',
-    confirm_password: ''
-  });
+  const buildParams = useCallback((overrides = {}) => {
+    const params = { page, limit: PAGE_SIZE, ...overrides };
+    if (query) params.search = query;
+    if (role !== 'all') params.role = role;
+    if (status !== 'all') params.status = status;
+    return params;
+  }, [page, query, role, status]);
 
-  const [errors, setErrors] = useState({});
-
-  useEffect(() => {
-    loadUsers();
-    loadStats();
-  }, [currentPage, searchTerm, roleFilter, statusFilter]);
-
-  const loadUsers = useCallback(async () => {
+  const loadDirectory = useCallback(async ({ quiet = false } = {}) => {
+    if (quiet) setRefreshing(true);
+    else setLoading(true);
+    setLoadError('');
     try {
-      setLoading(true);
-      const params = {
-        page: currentPage,
-        limit: 10
-      };
-
-      if (searchTerm) params.search = searchTerm;
-      if (roleFilter !== 'all') params.role = roleFilter;
-      if (statusFilter !== 'all') params.status = statusFilter;
-
-      const data = await apiGet('/admin/users', params);
-
-      setUsers(data.users || []);
-      setTotalPages(data.total_pages || 1);
-      setTotalUsers(data.total || 0);
-    } catch (err) {
-      console.error('Error loading users:', err);
-      showError('Failed to load users.');
+      const [directory, summaryData] = await Promise.all([
+        apiGet('/admin/users', buildParams()),
+        apiGet('/admin/users/stats'),
+      ]);
+      setUsers(Array.isArray(directory?.users) ? directory.users : []);
+      setTotalPages(Math.max(1, Number(directory?.total_pages || 1)));
+      setTotalUsers(Number(directory?.total || 0));
+      setStats({ ...EMPTY_STATS, ...(summaryData || {}) });
+    } catch (requestError) {
+      setUsers([]);
+      setTotalPages(1);
+      setTotalUsers(0);
+      setLoadError(errorText(requestError, 'The user directory could not be loaded.'));
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [currentPage, searchTerm, roleFilter, statusFilter, showError]);
+  }, [buildParams]);
 
-  const loadStats = useCallback(async () => {
-    try {
-      // Calculate stats from loaded users or make a separate API call
-      const data = await apiGet('/admin/users', { page: 1, limit: 1000 });
-      const allUsers = data.users || [];
+  useEffect(() => { loadDirectory(); }, [loadDirectory]);
 
-      setStats({
-        totalUsers: data.total || 0,
-        activeUsers: allUsers.filter(u => u.status === 'active').length,
-        inactiveUsers: allUsers.filter(u => u.status === 'inactive').length,
-        pendingUsers: allUsers.filter(u => u.status === 'pending').length,
-        adminUsers: allUsers.filter(u => u.is_admin || u.role === 'admin').length
-      });
-    } catch (err) {
-      console.error('Error loading stats:', err);
-    }
-  }, [showError]);
+  const summary = useMemo(() => ({
+    total: Number(stats.total_users || 0),
+    active: Number(stats.active_users || 0),
+    admins: Number(stats.admin_users || 0),
+    standard: Number(stats.regular_users || 0),
+    premium: Number(stats.premium_users || 0),
+    neverSignedIn: Number(stats.never_signed_in || 0),
+  }), [stats]);
 
-  const handleSearch = (e) => {
-    setSearchTerm(e.target.value);
-    setCurrentPage(1);
+  const firstRecord = totalUsers ? ((page - 1) * PAGE_SIZE) + 1 : 0;
+  const lastRecord = Math.min(page * PAGE_SIZE, totalUsers);
+
+  const closeModal = () => {
+    setModal(null);
+    setSelectedUser(null);
+    setFormErrors({});
+    setPasswordForm(EMPTY_PASSWORD_FORM);
   };
 
-  const handleFilterChange = (filterType, value) => {
-    if (filterType === 'role') {
-      setRoleFilter(value);
-    } else if (filterType === 'status') {
-      setStatusFilter(value);
-    }
-    setCurrentPage(1);
+  const openCreate = () => {
+    setSelectedUser(null);
+    setFormData(EMPTY_FORM);
+    setFormErrors({});
+    setModal('create');
   };
 
-  const handleViewUser = (user) => {
+  const openEdit = (user) => {
+    const userRole = normalizeRole(user.role);
     setSelectedUser(user);
-    setShowUserModal(true);
-  };
-
-  const handleCreateUser = () => {
-    setEditingUser(null);
     setFormData({
-      email: '',
-      first_name: '',
-      last_name: '',
-      role: 'user',
-      status: 'active',
-      is_admin: false,
+      email: user.email || '',
+      first_name: user.first_name || '',
+      last_name: user.last_name || '',
+      phone_number: user.phone_number || '',
+      organization: user.organization || '',
+      job_title: user.job_title || '',
+      role: userRole,
+      status: normalizeStatus(user.status),
+      user_type: userRole === 'admin' ? 'administrator' : user.user_type || 'workspace_user',
+      court_type: user.court_type || '',
+      entity_type: user.entity_type || '',
+      entity_id: user.entity_id || '',
       password: '',
-      confirm_password: ''
-    });
-    setErrors({});
-    setShowCreateModal(true);
-  };
-
-  const handleEditUser = (user) => {
-    setEditingUser(user);
-    setFormData({
-      email: user.email,
-      first_name: user.first_name,
-      last_name: user.last_name,
-      role: user.role,
-      status: user.status,
-      is_admin: user.is_admin || false,
-      password: '',
-      confirm_password: ''
-    });
-    setErrors({});
-    setShowEditModal(true);
-  };
-
-  const handleDeleteUser = (user) => {
-    setSelectedUser(user);
-    setShowDeleteModal(true);
-  };
-
-  const handlePasswordReset = (user) => {
-    setSelectedUser(user);
-    setPasswordResetData({
-      new_password: '',
       confirm_password: '',
-      admin_password: ''
     });
-    setErrors({});
-    setShowPasswordResetModal(true);
+    setFormErrors({});
+    setModal('edit');
   };
 
-  const handleToggleStatus = async (user) => {
-    try {
-      setIsSaving(true);
-      const newStatus = user.status === 'active' ? 'inactive' : 'active';
-      await apiPut(`/admin/users/${user.id}`, { status: newStatus });
-      success(`User status updated to ${newStatus} for ${user.first_name} ${user.last_name}.`);
-      loadUsers();
-      loadStats();
-    } catch (err) {
-      console.error('Error updating user status:', err);
-      const errorMessage = err.message || err.detail || 'Failed to update user status.';
-      showError(errorMessage);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleFormChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-
-    if (errors[name]) {
-      setErrors(prev => ({
-        ...prev,
-        [name]: ''
-      }));
-    }
+  const updateForm = (field, value) => {
+    setFormData((current) => {
+      const next = { ...current, [field]: value };
+      if (field === 'role') {
+        if (value === 'admin') next.user_type = 'administrator';
+        else if (current.user_type === 'administrator') next.user_type = 'workspace_user';
+      }
+      if (field === 'user_type') {
+        if (value === 'administrator') next.role = 'admin';
+        else if (current.role === 'admin') next.role = 'user';
+        if (value !== 'court_registrar') next.court_type = '';
+        if (value !== 'corporate_client') {
+          next.entity_type = '';
+          next.entity_id = '';
+        }
+      }
+      return next;
+    });
+    if (formErrors[field]) setFormErrors((current) => ({ ...current, [field]: '' }));
   };
 
   const validateForm = () => {
-    const newErrors = {};
-
-    if (!formData.email) newErrors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Email is invalid';
-
-    if (!formData.first_name) newErrors.first_name = 'First name is required';
-    if (!formData.last_name) newErrors.last_name = 'Last name is required';
-
-    // Password validation for create mode
-    if (!editingUser) {
-      if (!formData.password) newErrors.password = 'Password is required';
-      else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters long';
-      else if (formData.password !== formData.confirm_password) newErrors.confirm_password = 'Passwords do not match';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const nextErrors = {};
+    if (!formData.first_name.trim() || formData.first_name.trim().length < 2) nextErrors.first_name = 'Enter at least two characters.';
+    if (!formData.last_name.trim() || formData.last_name.trim().length < 2) nextErrors.last_name = 'Enter at least two characters.';
+    if (modal === 'create' && !/^\S+@\S+\.\S+$/.test(formData.email)) nextErrors.email = 'Enter a valid email address.';
+    if (modal === 'create' && formData.password.length < 8) nextErrors.password = 'Use at least eight characters.';
+    if (modal === 'create' && formData.password !== formData.confirm_password) nextErrors.confirm_password = 'Passwords do not match.';
+    if (formData.user_type === 'court_registrar' && !formData.court_type) nextErrors.court_type = 'Select the registrar court.';
+    if (formData.entity_id && (!/^\d+$/.test(String(formData.entity_id)) || Number(formData.entity_id) < 1)) nextErrors.entity_id = 'Use a positive record ID.';
+    setFormErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      showError('Please fix the validation errors');
-      return;
-    }
-
+  const submitAccount = async (event) => {
+    event.preventDefault();
+    if (!validateForm()) return;
+    setSaving(true);
     try {
-      setIsSaving(true);
-
-      const submitData = { ...formData };
-      if (editingUser) {
-        delete submitData.password;
-        delete submitData.confirm_password;
+      const editingCurrentAccount = modal === 'edit' && isCurrentAccount(selectedUser);
+      const effectiveRole = editingCurrentAccount ? normalizeRole(selectedUser.role) : formData.role;
+      const effectiveStatus = editingCurrentAccount ? normalizeStatus(selectedUser.status) : formData.status;
+      const effectiveClass = effectiveRole === 'admin'
+        ? 'administrator'
+        : editingCurrentAccount ? accountClass(selectedUser) : formData.user_type;
+      const shared = {
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        phone_number: formData.phone_number.trim(),
+        organization: formData.organization.trim(),
+        job_title: formData.job_title.trim(),
+        role: effectiveRole,
+        status: effectiveStatus,
+        is_admin: effectiveRole === 'admin',
+        user_type: effectiveClass,
+        court_type: effectiveClass === 'court_registrar' ? formData.court_type : '',
+        entity_type: effectiveClass === 'corporate_client' ? formData.entity_type : '',
+        entity_id: effectiveClass === 'corporate_client' && formData.entity_id ? Number(formData.entity_id) : null,
+      };
+      if (modal === 'create') {
+        await apiPost('/admin/users', { ...shared, email: formData.email.trim(), password: formData.password });
+        success('User account created successfully.');
+      } else {
+        await apiPut(`/admin/users/${selectedUser.id}`, shared);
+        success('User account updated.');
       }
-
-      const data = editingUser
-        ? await apiPut(`/admin/users/${editingUser.id}`, submitData)
-        : await apiPost('/admin/users', submitData);
-
-      success(editingUser ? 'User updated successfully' : 'User created successfully');
-      setShowCreateModal(false);
-      setShowEditModal(false);
-      setEditingUser(null);
-      setFormData({
-        email: '',
-        first_name: '',
-        last_name: '',
-        role: 'user',
-        status: 'active',
-        is_admin: false,
-        password: '',
-        confirm_password: ''
-      });
-      setErrors({});
-      loadUsers();
-      loadStats();
-    } catch (err) {
-      console.error('Error saving user:', err);
-      const errorMessage = err.message || err.detail || 'Failed to save user';
-      showError(errorMessage);
-      if (err.data?.detail) {
-        if (typeof err.data.detail === 'object') {
-          setErrors(err.data.detail);
-        } else {
-          setErrors({ general: err.data.detail });
-        }
-      }
+      closeModal();
+      await loadDirectory({ quiet: true });
+    } catch (requestError) {
+      showError(errorText(requestError, 'The user account could not be saved.'));
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
+  const submitPasswordReset = async (event) => {
+    event.preventDefault();
+    const nextErrors = {};
+    if (passwordForm.new_password.length < 8) nextErrors.new_password = 'Use at least eight characters.';
+    if (passwordForm.new_password !== passwordForm.confirm_password) nextErrors.confirm_password = 'Passwords do not match.';
+    if (!passwordForm.admin_password) nextErrors.admin_password = 'Enter your administrator password.';
+    setFormErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    setSaving(true);
     try {
-      setIsSaving(true);
-      await apiDelete(`/admin/users/${selectedUser.id}`);
-      success(`User ${selectedUser.first_name} ${selectedUser.last_name} deleted successfully`);
-      setShowDeleteModal(false);
-      setSelectedUser(null);
-      loadUsers();
-      loadStats();
-    } catch (err) {
-      console.error('Error deleting user:', err);
-      const errorMessage = err.message || err.detail || 'Failed to delete user';
-      showError(errorMessage);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handlePasswordResetSubmit = async () => {
-    try {
-      if (!passwordResetData.admin_password) {
-        setErrors({ admin_password: 'Admin password is required' });
-        showError('Admin password is required');
-        return;
-      }
-
-      if (passwordResetData.new_password !== passwordResetData.confirm_password) {
-        setErrors({ password: 'New passwords do not match' });
-        showError('New passwords do not match');
-        return;
-      }
-
-      if (passwordResetData.new_password.length < 8) {
-        setErrors({ password: 'New password must be at least 8 characters long' });
-        showError('New password must be at least 8 characters long');
-        return;
-      }
-
-      setIsSaving(true);
       await apiPost(`/admin/users/${selectedUser.id}/reset-password`, {
-        new_password: passwordResetData.new_password,
-        admin_password: passwordResetData.admin_password
+        new_password: passwordForm.new_password,
+        admin_password: passwordForm.admin_password,
       });
-
-      success(`Password reset successfully for ${selectedUser.first_name} ${selectedUser.last_name}`);
-      setShowPasswordResetModal(false);
-      setSelectedUser(null);
-      setPasswordResetData({
-        new_password: '',
-        confirm_password: '',
-        admin_password: ''
-      });
-      setErrors({});
-    } catch (err) {
-      console.error('Error resetting password:', err);
-      const errorMessage = err.message || err.detail || 'Failed to reset password';
-      showError(errorMessage);
-      if (err.data?.detail) {
-        if (typeof err.data.detail === 'object') {
-          setErrors(err.data.detail);
-        } else {
-          setErrors({ general: err.data.detail });
-        }
-      }
+      success(`Password reset for ${fullName(selectedUser)}.`);
+      closeModal();
+    } catch (requestError) {
+      showError(errorText(requestError, 'The password could not be reset.'));
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const getRoleBadgeColor = (role) => {
-    switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-      case 'moderator': return 'bg-yellow-100 text-yellow-800';
-      case 'user': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const confirmStatusChange = async () => {
+    if (!selectedUser || isCurrentAccount(selectedUser)) return;
+    const nextStatus = normalizeStatus(selectedUser.status) === 'active' ? 'suspended' : 'active';
+    setSaving(true);
+    try {
+      await apiPut(`/admin/users/${selectedUser.id}`, { status: nextStatus });
+      success(`${fullName(selectedUser)} is now ${nextStatus}.`);
+      closeModal();
+      await loadDirectory({ quiet: true });
+    } catch (requestError) {
+      showError(errorText(requestError, 'The account status could not be updated.'));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const getStatusBadgeColor = (status) => {
-    switch (status) {
-      case 'active': return 'bg-green-100 text-green-800';
-      case 'inactive': return 'bg-gray-100 text-gray-800';
-      case 'suspended': return 'bg-red-100 text-red-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      default: return 'bg-gray-100 text-gray-800';
+  const submitSearch = (event) => {
+    event.preventDefault();
+    setPage(1);
+    setQuery(queryInput.trim());
+  };
+
+  const clearFilters = () => {
+    setQueryInput('');
+    setQuery('');
+    setRole('all');
+    setStatus('all');
+    setPage(1);
+  };
+
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const data = await apiGet('/admin/users', buildParams({ page: 1, limit: 1000 }));
+      const exportUsers = Array.isArray(data?.users) ? data.users : [];
+      if (!exportUsers.length) {
+        showError('There are no matching users to export.');
+        return;
+      }
+      const headings = ['Name', 'Email', 'Access role', 'Account class', 'Organisation', 'Job title', 'Assignment', 'Status', 'Last sign-in', 'Created'];
+      const rows = exportUsers.map((user) => [
+        fullName(user),
+        user.email,
+        roleLabel(user.role),
+        accountClassLabel(user),
+        user.organization || '',
+        user.job_title || '',
+        assignmentLabel(user),
+        normalizeStatus(user.status),
+        formatDateTime(user.last_login),
+        formatDateTime(user.created_at),
+      ]);
+      const csv = [headings, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `juridence-users-${new Date().toISOString().slice(0, 10)}.csv`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      showError(errorText(requestError, 'The user export could not be prepared.'));
+    } finally {
+      setExporting(false);
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
+  const roleCount = role === 'admin'
+    ? summary.admins
+    : role === 'user' ? summary.standard : role === 'premium' ? summary.premium : summary.total;
 
   return (
-    <div className="bg-[#F7F8FA] min-h-screen w-full">
-      {/* Header */}
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
-
-      {/* Main Content */}
-      <div className="px-6 w-full">
-        <div className="flex flex-col items-start w-full bg-white py-4 gap-6 rounded-lg">
-          {/* Breadcrumb */}
-          <span className="text-[#525866] text-xs whitespace-nowrap px-6" style={{ fontFamily: 'Satoshi' }}>USER MANAGEMENT</span>
-
-          {/* Title */}
-          <div className="flex flex-col items-start px-6 gap-2">
-            <div className="flex items-center gap-1">
-              <UserCheck className="w-4 h-4 text-[#022658]" />
-              <span className="text-[#040E1B] text-xl font-bold whitespace-nowrap" style={{ fontFamily: 'Poppins' }}>Users</span>
-            </div>
-            <span className="text-[#070810] text-sm whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Manage system users, roles, and permissions</span>
-          </div>
-
-          {/* Statistics Cards */}
-          <div className="flex items-start self-stretch px-6 gap-3">
-            <div className="flex items-center bg-white flex-1 p-2 gap-3 rounded-lg border border-solid border-[#D4E1EA]">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Users className="w-5 h-5 text-blue-600" />
-              </div>
-              <div className="flex flex-col items-start gap-1">
-                <span className="text-[#868C98] text-xs whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Total Users</span>
-                <span className="text-[#F59E0B] text-base whitespace-nowrap font-bold" style={{ fontFamily: 'Satoshi' }}>{stats.totalUsers}</span>
-              </div>
-            </div>
-            <div className="flex items-center bg-white flex-1 p-2 gap-3 rounded-lg border border-solid border-[#D4E1EA]">
-              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              </div>
-              <div className="flex flex-col items-start gap-1">
-                <span className="text-[#868C98] text-xs whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Active Users</span>
-                <span className="text-[#F59E0B] text-base whitespace-nowrap font-bold" style={{ fontFamily: 'Satoshi' }}>{stats.activeUsers}</span>
-              </div>
-            </div>
-            <div className="flex items-center bg-white flex-1 p-2 gap-3 rounded-lg border border-solid border-[#D4E1EA]">
-              <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
-                <Shield className="w-5 h-5 text-purple-600" />
-              </div>
-              <div className="flex flex-col items-start gap-1">
-                <span className="text-[#868C98] text-xs whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Administrators</span>
-                <span className="text-[#F59E0B] text-base whitespace-nowrap font-bold" style={{ fontFamily: 'Satoshi' }}>{stats.adminUsers}</span>
-              </div>
-            </div>
-            <div className="flex items-center bg-white flex-1 p-2 gap-3 rounded-lg border border-solid border-[#D4E1EA]">
-              <div className="w-10 h-10 rounded-lg bg-yellow-100 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 text-yellow-600" />
-              </div>
-              <div className="flex flex-col items-start gap-1">
-                <span className="text-[#868C98] text-xs whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Pending Users</span>
-                <span className="text-[#F59E0B] text-base whitespace-nowrap font-bold" style={{ fontFamily: 'Satoshi' }}>{stats.pendingUsers}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Search, Filter and Add User */}
-          <div className="flex justify-between items-start w-full px-4 pt-4">
-            <div className="flex-1 pb-0.5 mr-4">
-              <div className="flex items-center self-stretch bg-[#F7F8FA] py-[7px] px-2 gap-1.5 rounded-[5px] border border-solid border-[#F7F8FA]">
-                <Search className="w-[11px] h-[11px] text-[#525866]" />
-                <input
-                  type="text"
-                  placeholder="Search by name or email..."
-                  value={searchTerm}
-                  onChange={handleSearch}
-                  className="flex-1 text-[#525866] bg-transparent text-xs border-0 outline-none"
-                  style={{ fontFamily: 'Satoshi' }}
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <select
-                  value={roleFilter}
-                  onChange={(e) => handleFilterChange('role', e.target.value)}
-                  className="px-3 py-2 bg-white border border-[#D4E1EA] rounded-lg text-xs text-[#525866] focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                  style={{ fontFamily: 'Satoshi' }}
-                >
-                  <option value="all">All Roles</option>
-                  <option value="admin">Admin</option>
-                  <option value="moderator">Moderator</option>
-                  <option value="user">User</option>
-                </select>
-              </div>
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => handleFilterChange('status', e.target.value)}
-                  className="px-3 py-2 bg-white border border-[#D4E1EA] rounded-lg text-xs text-[#525866] focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                  style={{ fontFamily: 'Satoshi' }}
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="pending">Pending</option>
-                  <option value="suspended">Suspended</option>
-                </select>
-              </div>
-              <button className="flex items-center px-3 py-2 gap-2 rounded-lg border border-solid border-[#F59E0B] hover:bg-orange-50 transition-colors">
-                <Download className="w-4 h-4 text-[#F59E0B]" />
-                <span className="text-[#F59E0B] text-xs font-medium" style={{ fontFamily: 'Satoshi' }}>Export</span>
-              </button>
-              <button
-                onClick={handleCreateUser}
-                className="flex items-center px-3 py-2 gap-2 rounded-lg bg-[#022658] text-white hover:bg-[#1A4983] transition-colors"
-                style={{ fontFamily: 'Satoshi' }}
-              >
-                <Plus className="w-4 h-4" />
-                <span className="text-xs font-medium">Add User</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Users Table */}
-          <div className="flex flex-col w-full bg-white py-4 gap-4 rounded-3xl">
-            {loading ? (
-              <div className="p-8 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#022658] mx-auto"></div>
-                <p className="mt-2 text-[#525866] text-sm" style={{ fontFamily: 'Satoshi' }}>Loading users...</p>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto w-full">
-                  <table className="min-w-full divide-y divide-[#D4E1EA] w-full">
-                    <thead className="bg-[#F7F8FA]">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-[#070810] uppercase tracking-wider" style={{ fontFamily: 'Satoshi' }}>
-                          User
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-[#070810] uppercase tracking-wider" style={{ fontFamily: 'Satoshi' }}>
-                          Role
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-[#070810] uppercase tracking-wider" style={{ fontFamily: 'Satoshi' }}>
-                          Status
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-[#070810] uppercase tracking-wider" style={{ fontFamily: 'Satoshi' }}>
-                          Created
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-bold text-[#070810] uppercase tracking-wider" style={{ fontFamily: 'Satoshi' }}>
-                          Last Login
-                        </th>
-                        <th className="px-4 py-3 text-right text-xs font-bold text-[#070810] uppercase tracking-wider" style={{ fontFamily: 'Satoshi' }}>
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-[#D4E1EA]">
-                      {users.length === 0 ? (
-                        <tr>
-                          <td colSpan="6" className="px-4 py-8 text-center text-[#525866] text-sm" style={{ fontFamily: 'Satoshi' }}>
-                            No users found
-                          </td>
-                        </tr>
-                      ) : (
-                        users.map((user) => (
-                          <tr key={user.id} className="hover:bg-[#F7F8FA]">
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="flex items-center">
-                                <div className="h-10 w-10 rounded-full bg-[#022658] flex items-center justify-center">
-                                  <span className="text-sm font-medium text-white">
-                                    {user.first_name?.charAt(0)}{user.last_name?.charAt(0)}
-                                  </span>
-                                </div>
-                                <div className="ml-4">
-                                  <div className="text-sm font-medium text-[#040E1B]" style={{ fontFamily: 'Satoshi' }}>
-                                    {user.first_name} {user.last_name}
-                                  </div>
-                                  <div className="text-sm text-[#525866]" style={{ fontFamily: 'Satoshi' }}>{user.email}</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <div className="flex items-center gap-2">
-                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(user.role)}`} style={{ fontFamily: 'Satoshi' }}>
-                                  {user.role}
-                                </span>
-                                {user.is_admin && (
-                                  <Shield className="h-4 w-4 text-purple-600" />
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap">
-                              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(user.status)}`} style={{ fontFamily: 'Satoshi' }}>
-                                {user.status}
-                              </span>
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm text-[#525866]" style={{ fontFamily: 'Satoshi' }}>
-                              {formatDate(user.created_at)}
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-sm text-[#525866]" style={{ fontFamily: 'Satoshi' }}>
-                              {formatDate(user.last_login)}
-                            </td>
-                            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
-                              <div className="flex items-center justify-end space-x-2">
-                                <button
-                                  onClick={() => handleViewUser(user)}
-                                  className="text-[#022658] hover:text-[#1A4983] p-1"
-                                  title="View Details"
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleEditUser(user)}
-                                  className="text-[#022658] hover:text-[#1A4983] p-1"
-                                  title="Edit User"
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleToggleStatus(user)}
-                                  className={`p-1 ${user.status === 'active' ? 'text-orange-600 hover:text-orange-800' : 'text-green-600 hover:text-green-800'}`}
-                                  title={user.status === 'active' ? 'Deactivate' : 'Activate'}
-                                  disabled={isSaving}
-                                >
-                                  {user.status === 'active' ? <XCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
-                                </button>
-                                <button
-                                  onClick={() => handlePasswordReset(user)}
-                                  className="text-[#F59E0B] hover:text-[#D97706] p-1"
-                                  title="Reset Password"
-                                >
-                                  <Key className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteUser(user)}
-                                  className="text-red-600 hover:text-red-800 p-1"
-                                  title="Delete User"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-[#D4E1EA]">
-                    <div className="flex-1 flex justify-between sm:hidden">
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1}
-                        className="relative inline-flex items-center px-4 py-2 border border-[#D4E1EA] text-sm font-medium rounded-lg text-[#525866] bg-white hover:bg-[#F7F8FA] disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ fontFamily: 'Satoshi' }}
-                      >
-                        Previous
-                      </button>
-                      <button
-                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                        disabled={currentPage === totalPages}
-                        className="ml-3 relative inline-flex items-center px-4 py-2 border border-[#D4E1EA] text-sm font-medium rounded-lg text-[#525866] bg-white hover:bg-[#F7F8FA] disabled:opacity-50 disabled:cursor-not-allowed"
-                        style={{ fontFamily: 'Satoshi' }}
-                      >
-                        Next
-                      </button>
-                    </div>
-                    <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm text-[#525866]" style={{ fontFamily: 'Satoshi' }}>
-                          Showing page <span className="font-medium">{currentPage}</span> of{' '}
-                          <span className="font-medium">{totalPages}</span>
-                        </p>
-                      </div>
-                      <div>
-                        <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                          <button
-                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                            disabled={currentPage === 1}
-                            className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-[#D4E1EA] bg-white text-sm font-medium text-[#525866] hover:bg-[#F7F8FA] disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <ChevronLeft className="h-5 w-5" />
-                          </button>
-                          {[...Array(totalPages)].map((_, i) => {
-                            const page = i + 1;
-                            if (page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
-                              return (
-                                <button
-                                  key={page}
-                                  onClick={() => setCurrentPage(page)}
-                                  className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                                    currentPage === page
-                                      ? 'z-10 bg-[#022658] border-[#022658] text-white'
-                                      : 'bg-white border-[#D4E1EA] text-[#525866] hover:bg-[#F7F8FA]'
-                                  }`}
-                                  style={{ fontFamily: 'Satoshi' }}
-                                >
-                                  {page}
-                                </button>
-                              );
-                            } else if (page === currentPage - 2 || page === currentPage + 2) {
-                              return <span key={page} className="relative inline-flex items-center px-4 py-2 border border-[#D4E1EA] bg-white text-sm font-medium text-[#525866]">...</span>;
-                            }
-                            return null;
-                          })}
-                          <button
-                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                            disabled={currentPage === totalPages}
-                            className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-[#D4E1EA] bg-white text-sm font-medium text-[#525866] hover:bg-[#F7F8FA] disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <ChevronRight className="h-5 w-5" />
-                          </button>
-                        </nav>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+    <main className="dd-module-shell dd-user-directory dd-client-directory">
+      <header className="dd-module-heading">
+        <div><p className="dd-eyebrow">Access administration</p><h2>Users</h2><p>Manage platform identities, access roles and account status from one directory.</p></div>
+        <div className="dd-heading-actions">
+          <button type="button" className="dd-button dd-button-secondary" onClick={() => loadDirectory({ quiet: true })} disabled={refreshing}><RefreshCw className={refreshing ? 'dd-spin' : ''} size={14} /> Refresh</button>
+          <button type="button" className="dd-button dd-button-primary" onClick={openCreate}><Plus size={14} /> Add user</button>
         </div>
-      </div>
+      </header>
 
-      {/* View User Modal */}
-      {showUserModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-[#040E1B]" style={{ fontFamily: 'Poppins' }}>User Details</h3>
-                <button
-                  onClick={() => setShowUserModal(false)}
-                  className="text-[#525866] hover:text-[#040E1B]"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-[#525866]" style={{ fontFamily: 'Satoshi' }}>Name</label>
-                    <p className="text-sm text-[#040E1B] mt-1" style={{ fontFamily: 'Satoshi' }}>
-                      {selectedUser.first_name} {selectedUser.last_name}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-[#525866]" style={{ fontFamily: 'Satoshi' }}>Email</label>
-                    <p className="text-sm text-[#040E1B] mt-1" style={{ fontFamily: 'Satoshi' }}>{selectedUser.email}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-[#525866]" style={{ fontFamily: 'Satoshi' }}>Role</label>
-                    <p className="text-sm text-[#040E1B] mt-1" style={{ fontFamily: 'Satoshi' }}>{selectedUser.role}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-[#525866]" style={{ fontFamily: 'Satoshi' }}>Status</label>
-                    <p className="text-sm text-[#040E1B] mt-1">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusBadgeColor(selectedUser.status)}`} style={{ fontFamily: 'Satoshi' }}>
-                        {selectedUser.status}
-                      </span>
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-[#525866]" style={{ fontFamily: 'Satoshi' }}>Created</label>
-                    <p className="text-sm text-[#040E1B] mt-1" style={{ fontFamily: 'Satoshi' }}>{formatDate(selectedUser.created_at)}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-[#525866]" style={{ fontFamily: 'Satoshi' }}>Last Login</label>
-                    <p className="text-sm text-[#040E1B] mt-1" style={{ fontFamily: 'Satoshi' }}>
-                      {selectedUser.last_login ? formatDate(selectedUser.last_login) : 'Never'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
+      <section className="dd-kpi-row dd-kpi-row-four" aria-label="User directory summary">
+        <article><Users size={19} /><div><strong>{formatNumber(summary.total)}</strong><span>Total accounts</span></div></article>
+        <article><UserCheck size={19} /><div><strong>{formatNumber(summary.active)}</strong><span>Active accounts</span></div></article>
+        <article><Shield size={19} /><div><strong>{formatNumber(summary.admins)}</strong><span>Administrators</span></div></article>
+        <article><Clock size={19} /><div><strong>{formatNumber(summary.neverSignedIn)}</strong><span>Never signed in</span></div></article>
+      </section>
+
+      {loadError && <div className="dd-inline-alert is-error"><span>{loadError}</span><button type="button" onClick={() => setLoadError('')} aria-label="Dismiss error"><X size={14} /></button></div>}
+
+      <section className="dd-panel dd-client-directory-panel">
+        <nav className="dd-gazette-dataset-tabs dd-client-type-tabs dd-user-role-tabs" aria-label="Access role views">
+          <button type="button" className={role === 'all' ? 'is-active' : ''} onClick={() => { setRole('all'); setPage(1); }}><Users size={13} /><strong>All users</strong><span>{summary.total}</span></button>
+          <button type="button" className={role === 'admin' ? 'is-active' : ''} onClick={() => { setRole('admin'); setPage(1); }}><Shield size={13} /><strong>Administrators</strong><span>{summary.admins}</span></button>
+          <button type="button" className={role === 'user' ? 'is-active' : ''} onClick={() => { setRole('user'); setPage(1); }}><UserCheck size={13} /><strong>Standard users</strong><span>{summary.standard}</span></button>
+          <button type="button" className={role === 'premium' ? 'is-active' : ''} onClick={() => { setRole('premium'); setPage(1); }}><Crown size={13} /><strong>Premium users</strong><span>{summary.premium}</span></button>
+        </nav>
+
+        <form className="dd-client-filter-bar" onSubmit={submitSearch}>
+          <label className="dd-client-search-field"><span>Search users</span><div className="dd-search-control"><Search size={14} /><input type="search" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="Name, email or organisation" /></div></label>
+          <label><span>Status</span><select className="dd-select-control" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="active">Active</option><option value="pending">Pending</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></label>
+          <button type="submit" className="dd-button dd-button-primary"><Search size={13} /> Search</button>
+          <button type="button" className="dd-button dd-button-secondary" onClick={clearFilters}>Clear</button>
+          <button type="button" className="dd-button dd-button-secondary" onClick={exportCsv} disabled={exporting || loading || !roleCount}>{exporting ? <Loader2 className="dd-spin" size={13} /> : <Download size={13} />} Export CSV</button>
+        </form>
+
+        <header className="dd-list-header dd-client-list-header"><div><strong>User directory</strong><span>{formatNumber(totalUsers)} matching user{totalUsers === 1 ? '' : 's'}</span></div><span className="dd-count-badge">Records {firstRecord}-{lastRecord}</span></header>
+
+        {loading ? <div className="dd-loading-state"><Loader2 className="dd-spin" size={17} /> Loading user accounts...</div> : (
+          <div className="dd-table-wrap dd-user-directory-table">
+            <table className="dd-data-table">
+              <thead><tr><th>Account</th><th>Access role</th><th>Account class</th><th>Organisation</th><th>Status</th><th>Last sign-in</th><th>Created</th><th /></tr></thead>
+              <tbody>
+                {users.map((user) => {
+                  const currentStatus = normalizeStatus(user.status);
+                  const currentRole = normalizeRole(user.role);
+                  const currentUser = isCurrentAccount(user);
+                  return (
+                    <tr key={user.id}>
+                      <td><div className="dd-client-account"><span className="dd-team-avatar">{initials(user)}</span><div><strong>{fullName(user)}{currentUser && <em className="dd-current-user-tag">You</em>}</strong><small>{user.email}</small></div></div></td>
+                      <td><span className={`dd-access-role is-${currentRole}`}>{currentRole === 'admin' ? <Shield size={12} /> : currentRole === 'premium' ? <Crown size={12} /> : <UserCheck size={12} />}{roleLabel(currentRole)}</span></td>
+                      <td><strong>{accountClassLabel(user)}</strong><small>{assignmentLabel(user)}</small></td>
+                      <td><strong>{user.organization || 'Not recorded'}</strong><small>{user.job_title || 'No job title recorded'}</small></td>
+                      <td><span className={`dd-status-badge is-${currentStatus}`}>{currentStatus}</span></td>
+                      <td className="dd-client-date">{formatDateTime(user.last_login)}</td>
+                      <td className="dd-client-date">{formatDateTime(user.created_at)}</td>
+                      <td><div className="dd-client-row-actions">
+                        <button type="button" className="dd-icon-button" onClick={() => { setSelectedUser(user); setModal('view'); }} aria-label={`View ${fullName(user)}`} title="View user"><Eye size={14} /></button>
+                        <button type="button" className="dd-icon-button" onClick={() => openEdit(user)} aria-label={`Edit ${fullName(user)}`} title="Edit user"><Edit size={14} /></button>
+                        <button type="button" className="dd-icon-button" onClick={() => { setSelectedUser(user); setFormErrors({}); setPasswordForm(EMPTY_PASSWORD_FORM); setModal('password'); }} aria-label={`Reset password for ${fullName(user)}`} title="Reset password"><Key size={14} /></button>
+                        <button type="button" className={`dd-icon-button ${currentStatus === 'active' && !currentUser ? 'is-danger' : ''}`} onClick={() => { setSelectedUser(user); setModal('status'); }} aria-label={currentUser ? `Current session for ${fullName(user)}` : `${currentStatus === 'active' ? 'Suspend' : 'Reactivate'} ${fullName(user)}`} title={currentUser ? 'The signed-in account cannot suspend itself' : currentStatus === 'active' ? 'Suspend account' : 'Reactivate account'} disabled={currentUser}>{currentUser ? <Lock size={14} /> : currentStatus === 'active' ? <UserX size={14} /> : <UserCheck size={14} />}</button>
+                      </div></td>
+                    </tr>
+                  );
+                })}
+                {!users.length && <tr><td colSpan="8"><div className="dd-empty-state dd-client-empty"><Users size={25} /><strong>No users found</strong><p>{loadError ? 'The user directory is unavailable.' : 'No accounts match the selected filters.'}</p></div></td></tr>}
+              </tbody>
+            </table>
           </div>
+        )}
+
+        <footer className="dd-client-pagination"><span>Records {firstRecord}-{lastRecord} of {formatNumber(totalUsers)}</span><div><button type="button" className="dd-button dd-button-secondary" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Prev</button><span>Page {page} of {totalPages}</span><button type="button" className="dd-button dd-button-secondary" disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button></div></footer>
+      </section>
+
+      <div className="dd-inline-alert is-info dd-client-safety-note"><Shield size={14} /><span>Accounts are suspended rather than deleted. The signed-in administrator is protected from self-suspension.</span></div>
+
+      {modal === 'view' && selectedUser && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
+          <section className="dd-modal dd-client-detail-modal" role="dialog" aria-modal="true" aria-labelledby="user-detail-title">
+            <header><div><h3 id="user-detail-title">{fullName(selectedUser)}</h3><p>{roleLabel(selectedUser.role)} · Account {selectedUser.id}{isCurrentAccount(selectedUser) ? ' · Current session' : ''}</p></div><button type="button" onClick={closeModal} aria-label="Close user details"><X size={16} /></button></header>
+            <div className="dd-gazette-facts dd-client-detail-facts">
+              <div><Mail size={14} /><span>Email</span><strong>{selectedUser.email}</strong></div>
+              <div><Building2 size={14} /><span>Organisation</span><strong>{selectedUser.organization || 'Not recorded'}</strong></div>
+              <div><Shield size={14} /><span>Status</span><strong>{normalizeStatus(selectedUser.status)}</strong></div>
+              <div><Calendar size={14} /><span>Last sign-in</span><strong>{formatDateTime(selectedUser.last_login)}</strong></div>
+            </div>
+            <div className="dd-modal-body">
+              <dl className="dd-client-detail-list dd-user-detail-list">
+                <div><dt>Access role</dt><dd>{roleLabel(selectedUser.role)}</dd></div>
+                <div><dt>Account class</dt><dd>{accountClassLabel(selectedUser)}</dd></div>
+                <div><dt>Assignment</dt><dd>{assignmentLabel(selectedUser)}</dd></div>
+                <div><dt>Administrator access</dt><dd>{selectedUser.is_admin ? 'Enabled' : 'Not enabled'}</dd></div>
+                <div><dt>Job title</dt><dd>{selectedUser.job_title || 'Not recorded'}</dd></div>
+                <div><dt>Phone number</dt><dd>{selectedUser.phone_number || 'Not recorded'}</dd></div>
+                <div><dt>Created</dt><dd>{formatDateTime(selectedUser.created_at)}</dd></div>
+                <div><dt>Last updated</dt><dd>{formatDateTime(selectedUser.updated_at)}</dd></div>
+              </dl>
+              <div className="dd-modal-actions"><button type="button" className="dd-button dd-button-secondary" onClick={closeModal}>Close</button><button type="button" className="dd-button dd-button-primary" onClick={() => openEdit(selectedUser)}><Edit size={13} /> Edit user</button></div>
+            </div>
+          </section>
         </div>
       )}
 
-      {/* Create/Edit User Modal */}
-      {(showCreateModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <form onSubmit={handleSubmit} className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-[#040E1B]" style={{ fontFamily: 'Poppins' }}>
-                  {editingUser ? 'Edit User' : 'Create User'}
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setShowEditModal(false);
-                    setEditingUser(null);
-                    setErrors({});
-                  }}
-                  className="text-[#525866] hover:text-[#040E1B]"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+      {(modal === 'create' || modal === 'edit') && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) closeModal(); }}>
+          <section className="dd-modal dd-client-form-modal" role="dialog" aria-modal="true" aria-labelledby="user-form-title">
+            <header><div><h3 id="user-form-title">{modal === 'create' ? 'Add user' : 'Edit user'}</h3><p>{modal === 'create' ? 'Create a platform identity and assign its access level.' : `Update ${fullName(selectedUser)} without changing the sign-in email.`}</p></div><button type="button" onClick={closeModal} disabled={saving} aria-label="Close user form"><X size={16} /></button></header>
+            <form className="dd-modal-body dd-client-form" onSubmit={submitAccount}>
+              <div className="dd-client-form-grid">
+                <label><span>First name *</span><input value={formData.first_name} onChange={(event) => updateForm('first_name', event.target.value)} />{formErrors.first_name && <small>{formErrors.first_name}</small>}</label>
+                <label><span>Last name *</span><input value={formData.last_name} onChange={(event) => updateForm('last_name', event.target.value)} />{formErrors.last_name && <small>{formErrors.last_name}</small>}</label>
+                <label className="is-wide"><span>Email address *</span><input type="email" value={formData.email} onChange={(event) => updateForm('email', event.target.value)} readOnly={modal === 'edit'} aria-readonly={modal === 'edit'} />{formErrors.email && <small>{formErrors.email}</small>}</label>
+                <label><span>Access role *</span><select value={formData.role} onChange={(event) => updateForm('role', event.target.value)} disabled={modal === 'edit' && isCurrentAccount(selectedUser)}><option value="admin">Administrator</option><option value="user">Standard user</option><option value="premium">Premium user</option></select></label>
+                <label><span>Status *</span><select value={formData.status} onChange={(event) => updateForm('status', event.target.value)} disabled={modal === 'edit' && isCurrentAccount(selectedUser)}><option value="active">Active</option><option value="pending">Pending</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></label>
+                <label><span>Account class *</span><select value={formData.user_type} onChange={(event) => updateForm('user_type', event.target.value)} disabled={modal === 'edit' && isCurrentAccount(selectedUser)}><option value="administrator">Administrator</option><option value="workspace_user">Workspace member</option><option value="corporate_client">Corporate client</option><option value="court_registrar">Court registrar</option></select></label>
+                <label><span>Organisation</span><input value={formData.organization} onChange={(event) => updateForm('organization', event.target.value)} placeholder="Organisation or court unit" /></label>
+                <label><span>Job title</span><input value={formData.job_title} onChange={(event) => updateForm('job_title', event.target.value)} placeholder="Role in organisation" /></label>
+                <label><span>Phone number</span><input type="tel" value={formData.phone_number} onChange={(event) => updateForm('phone_number', event.target.value)} placeholder="Not set" /></label>
+                {formData.user_type === 'court_registrar' && <label><span>Court assignment *</span><select value={formData.court_type} onChange={(event) => updateForm('court_type', event.target.value)}><option value="">Select court</option>{Object.entries(courtLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>{formErrors.court_type && <small>{formErrors.court_type}</small>}</label>}
+                {formData.user_type === 'corporate_client' && <><label><span>Entity type</span><select value={formData.entity_type} onChange={(event) => updateForm('entity_type', event.target.value)}><option value="">Not linked</option>{Object.entries(entityLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>Entity record ID</span><input inputMode="numeric" value={formData.entity_id} onChange={(event) => updateForm('entity_id', event.target.value)} placeholder="Optional record ID" />{formErrors.entity_id && <small>{formErrors.entity_id}</small>}</label></>}
+                {modal === 'create' && <><label><span>Temporary password *</span><input type="password" value={formData.password} onChange={(event) => updateForm('password', event.target.value)} autoComplete="new-password" />{formErrors.password && <small>{formErrors.password}</small>}</label><label><span>Confirm password *</span><input type="password" value={formData.confirm_password} onChange={(event) => updateForm('confirm_password', event.target.value)} autoComplete="new-password" />{formErrors.confirm_password && <small>{formErrors.confirm_password}</small>}</label></>}
               </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Email *</label>
-                    <input
-                      type="email"
-                      name="email"
-                      value={formData.email}
-                      onChange={handleFormChange}
-                      className={`w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] ${
-                        errors.email ? 'border-red-500' : ''
-                      }`}
-                      style={{ fontFamily: 'Satoshi' }}
-                      disabled={!!editingUser}
-                    />
-                    {errors.email && <p className="text-xs text-red-600 mt-1">{errors.email}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Role *</label>
-                    <select
-                      name="role"
-                      value={formData.role}
-                      onChange={handleFormChange}
-                      className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                      style={{ fontFamily: 'Satoshi' }}
-                    >
-                      <option value="user">User</option>
-                      <option value="moderator">Moderator</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>First Name *</label>
-                    <input
-                      type="text"
-                      name="first_name"
-                      value={formData.first_name}
-                      onChange={handleFormChange}
-                      className={`w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] ${
-                        errors.first_name ? 'border-red-500' : ''
-                      }`}
-                      style={{ fontFamily: 'Satoshi' }}
-                    />
-                    {errors.first_name && <p className="text-xs text-red-600 mt-1">{errors.first_name}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Last Name *</label>
-                    <input
-                      type="text"
-                      name="last_name"
-                      value={formData.last_name}
-                      onChange={handleFormChange}
-                      className={`w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] ${
-                        errors.last_name ? 'border-red-500' : ''
-                      }`}
-                      style={{ fontFamily: 'Satoshi' }}
-                    />
-                    {errors.last_name && <p className="text-xs text-red-600 mt-1">{errors.last_name}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Status</label>
-                    <select
-                      name="status"
-                      value={formData.status}
-                      onChange={handleFormChange}
-                      className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                      style={{ fontFamily: 'Satoshi' }}
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="pending">Pending</option>
-                      <option value="suspended">Suspended</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center pt-6">
-                    <input
-                      type="checkbox"
-                      name="is_admin"
-                      checked={formData.is_admin}
-                      onChange={handleFormChange}
-                      className="h-4 w-4 text-[#022658] focus:ring-[#022658] border-[#D4E1EA] rounded"
-                    />
-                    <label className="ml-2 block text-sm text-[#525866]" style={{ fontFamily: 'Satoshi' }}>
-                      Admin privileges
-                    </label>
-                  </div>
-                  {/* Password fields for create mode only */}
-                  {!editingUser && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Password *</label>
-                        <input
-                          type="password"
-                          name="password"
-                          value={formData.password}
-                          onChange={handleFormChange}
-                          className={`w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] ${
-                            errors.password ? 'border-red-500' : ''
-                          }`}
-                          style={{ fontFamily: 'Satoshi' }}
-                        />
-                        {errors.password && <p className="text-xs text-red-600 mt-1">{errors.password}</p>}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Confirm Password *</label>
-                        <input
-                          type="password"
-                          name="confirm_password"
-                          value={formData.confirm_password}
-                          onChange={handleFormChange}
-                          className={`w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658] ${
-                            errors.confirm_password ? 'border-red-500' : ''
-                          }`}
-                          style={{ fontFamily: 'Satoshi' }}
-                        />
-                        {errors.confirm_password && <p className="text-xs text-red-600 mt-1">{errors.confirm_password}</p>}
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="flex justify-end space-x-3 pt-4 border-t">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowCreateModal(false);
-                      setShowEditModal(false);
-                      setEditingUser(null);
-                      setErrors({});
-                    }}
-                    className="px-4 py-2 text-[#022658] bg-white border-2 border-[#022658] rounded-lg hover:bg-gray-50 transition-colors"
-                    style={{ fontFamily: 'Satoshi' }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#1A4983] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ fontFamily: 'Satoshi' }}
-                  >
-                    {isSaving ? 'Saving...' : (editingUser ? 'Update User' : 'Create User')}
-                  </button>
-                </div>
-              </div>
+              <p className="dd-form-note">{modal === 'edit' && isCurrentAccount(selectedUser) ? 'Your current access role, account class and status are locked here to prevent an accidental administrator lockout.' : 'Access roles control system privileges; account classes describe the workspace or organisation represented.'}</p>
+              <div className="dd-modal-actions"><button type="button" className="dd-button dd-button-secondary" onClick={closeModal} disabled={saving}>Cancel</button><button type="submit" className="dd-button dd-button-primary" disabled={saving}>{saving && <Loader2 className="dd-spin" size={13} />}{modal === 'create' ? 'Create user' : 'Save changes'}</button></div>
             </form>
-          </div>
+          </section>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
-                <Trash2 className="h-6 w-6 text-red-600" />
-              </div>
-              <h3 className="text-lg font-bold text-[#040E1B] text-center mb-2" style={{ fontFamily: 'Poppins' }}>Delete User</h3>
-              <p className="text-sm text-[#525866] text-center mb-4" style={{ fontFamily: 'Satoshi' }}>
-                Are you sure you want to delete {selectedUser.first_name} {selectedUser.last_name}? This action cannot be undone.
-              </p>
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setSelectedUser(null);
-                  }}
-                  className="px-4 py-2 text-[#022658] bg-white border-2 border-[#022658] rounded-lg hover:bg-gray-50 transition-colors"
-                  style={{ fontFamily: 'Satoshi' }}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={isSaving}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ fontFamily: 'Satoshi' }}
-                >
-                  {isSaving ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
-            </div>
-          </div>
+      {modal === 'password' && selectedUser && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) closeModal(); }}>
+          <section className="dd-modal dd-client-password-modal" role="dialog" aria-modal="true" aria-labelledby="user-password-title">
+            <header><div><h3 id="user-password-title">Reset password</h3><p>Set a new password for {fullName(selectedUser)}.</p></div><button type="button" onClick={closeModal} disabled={saving} aria-label="Close password reset"><X size={16} /></button></header>
+            <form className="dd-modal-body dd-client-password-form" onSubmit={submitPasswordReset}>
+              <label><span>New password *</span><input type="password" value={passwordForm.new_password} onChange={(event) => setPasswordForm((current) => ({ ...current, new_password: event.target.value }))} autoComplete="new-password" />{formErrors.new_password && <small>{formErrors.new_password}</small>}</label>
+              <label><span>Confirm new password *</span><input type="password" value={passwordForm.confirm_password} onChange={(event) => setPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))} autoComplete="new-password" />{formErrors.confirm_password && <small>{formErrors.confirm_password}</small>}</label>
+              <label><span>Your administrator password *</span><input type="password" value={passwordForm.admin_password} onChange={(event) => setPasswordForm((current) => ({ ...current, admin_password: event.target.value }))} autoComplete="current-password" />{formErrors.admin_password && <small>{formErrors.admin_password}</small>}</label>
+              <div className="dd-inline-alert is-info"><Key size={14} /><span>This action requires your current administrator password.</span></div>
+              <div className="dd-modal-actions"><button type="button" className="dd-button dd-button-secondary" onClick={closeModal} disabled={saving}>Cancel</button><button type="submit" className="dd-button dd-button-primary" disabled={saving}>{saving && <Loader2 className="dd-spin" size={13} />} Reset password</button></div>
+            </form>
+          </section>
         </div>
       )}
 
-      {/* Password Reset Modal */}
-      {showPasswordResetModal && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-[#040E1B]" style={{ fontFamily: 'Poppins' }}>Reset Password</h3>
-                <button
-                  onClick={() => {
-                    setShowPasswordResetModal(false);
-                    setSelectedUser(null);
-                    setPasswordResetData({
-                      new_password: '',
-                      confirm_password: '',
-                      admin_password: ''
-                    });
-                    setErrors({});
-                  }}
-                  className="text-[#525866] hover:text-[#040E1B]"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>New Password *</label>
-                  <input
-                    type="password"
-                    value={passwordResetData.new_password}
-                    onChange={(e) => setPasswordResetData({ ...passwordResetData, new_password: e.target.value })}
-                    className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                    style={{ fontFamily: 'Satoshi' }}
-                  />
-                  {errors.password && <p className="text-xs text-red-600 mt-1">{errors.password}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Confirm Password *</label>
-                  <input
-                    type="password"
-                    value={passwordResetData.confirm_password}
-                    onChange={(e) => setPasswordResetData({ ...passwordResetData, confirm_password: e.target.value })}
-                    className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                    style={{ fontFamily: 'Satoshi' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-[#525866] mb-1" style={{ fontFamily: 'Satoshi' }}>Admin Password *</label>
-                  <input
-                    type="password"
-                    value={passwordResetData.admin_password}
-                    onChange={(e) => setPasswordResetData({ ...passwordResetData, admin_password: e.target.value })}
-                    className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:ring-2 focus:ring-[#022658] focus:border-[#022658]"
-                    style={{ fontFamily: 'Satoshi' }}
-                  />
-                  {errors.admin_password && <p className="text-xs text-red-600 mt-1">{errors.admin_password}</p>}
-                </div>
-                <div className="flex justify-end space-x-3 pt-4 border-t">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowPasswordResetModal(false);
-                      setSelectedUser(null);
-                      setPasswordResetData({
-                        new_password: '',
-                        confirm_password: '',
-                        admin_password: ''
-                      });
-                      setErrors({});
-                    }}
-                    className="px-4 py-2 text-[#022658] bg-white border-2 border-[#022658] rounded-lg hover:bg-gray-50 transition-colors"
-                    style={{ fontFamily: 'Satoshi' }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handlePasswordResetSubmit}
-                    disabled={isSaving}
-                    className="px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#1A4983] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ fontFamily: 'Satoshi' }}
-                  >
-                    {isSaving ? 'Resetting...' : 'Reset Password'}
-                  </button>
-                </div>
-              </div>
+      {modal === 'status' && selectedUser && !isCurrentAccount(selectedUser) && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) closeModal(); }}>
+          <section className="dd-modal dd-modal-small" role="dialog" aria-modal="true" aria-labelledby="user-status-title">
+            <header><div><h3 id="user-status-title">{normalizeStatus(selectedUser.status) === 'active' ? 'Suspend account' : 'Reactivate account'}</h3><p>{fullName(selectedUser)} · {selectedUser.email}</p></div><button type="button" onClick={closeModal} disabled={saving} aria-label="Close status confirmation"><X size={16} /></button></header>
+            <div className="dd-modal-body dd-client-status-confirmation">
+              <span className={normalizeStatus(selectedUser.status) === 'active' ? 'is-warning' : 'is-success'}>{normalizeStatus(selectedUser.status) === 'active' ? <UserX size={22} /> : <CheckCircle size={22} />}</span>
+              <p>{normalizeStatus(selectedUser.status) === 'active' ? 'Suspension blocks sign-in while preserving the account, role assignments and audit history.' : 'Reactivation restores the user ability to sign in with their assigned access role.'}</p>
+              <div className="dd-modal-actions"><button type="button" className="dd-button dd-button-secondary" onClick={closeModal} disabled={saving}>Cancel</button><button type="button" className="dd-button dd-button-primary" onClick={confirmStatusChange} disabled={saving}>{saving && <Loader2 className="dd-spin" size={13} />}{normalizeStatus(selectedUser.status) === 'active' ? 'Suspend account' : 'Reactivate account'}</button></div>
             </div>
-          </div>
+          </section>
         </div>
       )}
+
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-    </div>
+    </main>
   );
 };
 

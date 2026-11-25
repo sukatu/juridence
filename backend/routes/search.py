@@ -6,6 +6,7 @@ from models.people import People
 from models.banks import Banks
 from models.insurance import Insurance
 from models.companies import Companies
+from models.pending_case_party import PendingCaseParty
 from models.user import User
 from models.gazette import Gazette
 from schemas.search import (
@@ -22,15 +23,68 @@ from auth import get_current_user
 from typing import List, Optional, Dict, Any
 import logging
 import math
+import re
 import time
 from services.usage_tracking_service import UsageTrackingService
 
 router = APIRouter()
 
+
+def _entity_aliases(canonical_name, *values):
+    aliases = []
+    alias_key = lambda value: " ".join(re.findall(r"[a-z0-9]+", str(value or "").casefold()))
+    seen = {alias_key(canonical_name)}
+
+    def add(value):
+        if isinstance(value, dict):
+            value = value.get("name") or value.get("value") or value.get("previous_name")
+        if not isinstance(value, str):
+            return
+        cleaned = re.sub(r"\s+", " ", value.strip())
+        cleaned = re.sub(r"\s*\(([^)]+)\)\s*", r" (\1) ", cleaned).strip()
+        key = alias_key(cleaned)
+        if cleaned and key not in seen:
+            seen.add(key)
+            aliases.append(cleaned)
+
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            for entry in value:
+                add(entry)
+        else:
+            add(value)
+    return aliases
+
+
+def _source_bank_aliases(canonical_name, values):
+    canonical_tokens = set(re.findall(r"[A-Z0-9]+", str(canonical_name or "").upper()))
+    corporate_tokens = {"BANK", "GH", "GHA", "GHANA", "LTD", "LIMITED", "PLC", "INC", "CORP", "CORPORATION"}
+    allowed_tokens = canonical_tokens | corporate_tokens
+    plausible = []
+    for value in values:
+        tokens = set(re.findall(r"[A-Z0-9]+", str(value or "").upper()))
+        if 1 < len(tokens) <= 7 and tokens.issubset(allowed_tokens):
+            plausible.append(value)
+    def alias_priority(value):
+        tokens = set(re.findall(r"[A-Z0-9]+", str(value or "").upper()))
+        has_limited = bool(tokens & {"LTD", "LIMITED"})
+        if "GHANA" in tokens and has_limited:
+            group = 0
+        elif has_limited and not (tokens & {"GH", "GHA", "GHANA"}):
+            group = 1
+        elif "GH" in tokens and "PLC" in tokens:
+            group = 2
+        else:
+            group = 3
+        return group, 0 if "(" in str(value) else 1, len(tokens), len(str(value))
+
+    return _entity_aliases(canonical_name, sorted(plausible, key=alias_priority))[:15]
+
 @router.get("/unified", response_model=UnifiedSearchResponse)
 async def unified_search(
     query: Optional[str] = Query(None, description="General search query"),
     search_type: str = Query("all", description="Type of search (all, people, banks, insurance, companies)"),
+    identity_only: bool = Query(False, description="Match identity fields rather than descriptive content"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(1000, ge=1, le=5000, description="Items per page"),
     db: Session = Depends(get_db),
@@ -49,21 +103,22 @@ async def unified_search(
         people_query = db.query(People).filter(People.is_verified == True)
         if query:
             search_term = f"%{query.lower()}%"
-            people_query = people_query.filter(
-                or_(
-                    func.lower(People.full_name).like(search_term),
-                    func.lower(People.first_name).like(search_term),
-                    func.lower(People.last_name).like(search_term),
-                    func.lower(People.id_number).like(search_term),
+            identity_conditions = [
+                func.lower(People.full_name).like(search_term),
+                func.lower(People.first_name).like(search_term),
+                func.lower(People.last_name).like(search_term),
+                func.lower(People.id_number).like(search_term),
+                func.cast(People.previous_names, String).ilike(search_term),
+            ]
+            if not identity_only:
+                identity_conditions.extend([
                     func.lower(People.phone_number).like(search_term),
                     func.lower(People.email).like(search_term),
                     func.lower(People.address).like(search_term),
                     func.lower(People.city).like(search_term),
                     func.lower(People.region).like(search_term),
-                    # Search in previous_names (alias names) JSON array
-                    func.cast(People.previous_names, String).ilike(search_term)
-                )
-            )
+                ])
+            people_query = people_query.filter(or_(*identity_conditions))
         
         people_results = people_query.all()
         
@@ -91,6 +146,7 @@ async def unified_search(
                 city=person.city,
                 region=person.region,
                 additional_info={
+                    "aliases": _entity_aliases(person.full_name, person.previous_names),
                     "risk_level": person.risk_level,
                     "case_count": person.case_count,
                     "total_cases": total_cases,
@@ -107,18 +163,62 @@ async def unified_search(
         banks_query = db.query(Banks).filter(Banks.is_active == True)
         if query:
             search_term = f"%{query.lower()}%"
-            banks_query = banks_query.filter(
-                or_(
+            compact_term = re.sub(r"[^a-z0-9]+", "", query.casefold())
+            compact_name_match = func.regexp_replace(
+                func.lower(func.coalesce(Banks.name, "")),
+                "[^a-z0-9]",
+                "",
+                "g",
+            ).like(f"%{compact_term}%")
+            alias_matches = (
+                db.query(PendingCaseParty.bank_id, PendingCaseParty.party_name)
+                .filter(
+                    PendingCaseParty.is_source_bank == True,
+                    func.lower(PendingCaseParty.party_name).like(search_term),
+                )
+                .distinct()
+                .all()
+            )
+            candidate_ids = {bank_id for bank_id, _ in alias_matches}
+            candidate_names = dict(
+                db.query(Banks.id, Banks.name).filter(Banks.id.in_(candidate_ids)).all()
+            ) if candidate_ids else {}
+            alias_bank_ids = {
+                bank_id
+                for bank_id, party_name in alias_matches
+                if _source_bank_aliases(candidate_names.get(bank_id), [party_name])
+            }
+            bank_conditions = [
                     func.lower(Banks.name).like(search_term),
                     func.lower(Banks.short_name).like(search_term),
+                    func.lower(Banks.former_name).like(search_term),
+                    func.cast(Banks.previous_names, String).ilike(search_term),
                     func.lower(Banks.bank_code).like(search_term),
+                    compact_name_match,
+                    Banks.id.in_(alias_bank_ids) if alias_bank_ids else False,
+            ]
+            if not identity_only:
+                bank_conditions.extend([
                     func.lower(Banks.city).like(search_term),
                     func.lower(Banks.region).like(search_term),
-                    func.lower(Banks.description).like(search_term)
-                )
-            )
+                    func.lower(Banks.description).like(search_term),
+                ])
+            banks_query = banks_query.filter(or_(*bank_conditions))
         
         banks_results = banks_query.all()
+        source_aliases = {}
+        if banks_results:
+            alias_rows = (
+                db.query(PendingCaseParty.bank_id, PendingCaseParty.party_name)
+                .filter(
+                    PendingCaseParty.bank_id.in_([bank.id for bank in banks_results]),
+                    PendingCaseParty.is_source_bank == True,
+                )
+                .distinct()
+                .all()
+            )
+            for bank_id, party_name in alias_rows:
+                source_aliases.setdefault(bank_id, []).append(party_name)
         
         # Add to unified results
         for bank in banks_results:
@@ -131,6 +231,13 @@ async def unified_search(
                 region=bank.region,
                 logo_url=bank.logo_url,
                 additional_info={
+                    "aliases": _entity_aliases(
+                        bank.name,
+                        bank.short_name,
+                        bank.former_name,
+                        bank.previous_names,
+                        _source_bank_aliases(bank.name, source_aliases.get(bank.id, [])),
+                    ),
                     "bank_type": bank.bank_type,
                     "rating": bank.rating,
                     "phone": bank.phone,
@@ -145,16 +252,20 @@ async def unified_search(
         insurance_query = db.query(Insurance).filter(Insurance.is_active == True)
         if query:
             search_term = f"%{query.lower()}%"
-            insurance_query = insurance_query.filter(
-                or_(
+            insurance_conditions = [
                     func.lower(Insurance.name).like(search_term),
                     func.lower(Insurance.short_name).like(search_term),
+                    func.lower(Insurance.former_name).like(search_term),
+                    func.cast(Insurance.previous_names, String).ilike(search_term),
                     func.lower(Insurance.license_number).like(search_term),
+            ]
+            if not identity_only:
+                insurance_conditions.extend([
                     func.lower(Insurance.city).like(search_term),
                     func.lower(Insurance.region).like(search_term),
-                    func.lower(Insurance.description).like(search_term)
-                )
-            )
+                    func.lower(Insurance.description).like(search_term),
+                ])
+            insurance_query = insurance_query.filter(or_(*insurance_conditions))
         
         insurance_results = insurance_query.all()
         
@@ -169,6 +280,7 @@ async def unified_search(
                 region=insurance.region,
                 logo_url=insurance.logo_url,
                 additional_info={
+                    "aliases": _entity_aliases(insurance.name, insurance.short_name, insurance.former_name, insurance.previous_names),
                     "insurance_type": insurance.insurance_type,
                     "rating": insurance.rating,
                     "phone": insurance.phone,
@@ -183,17 +295,21 @@ async def unified_search(
         companies_query = db.query(Companies).filter(Companies.is_active == True)
         if query:
             search_term = f"%{query.lower()}%"
-            companies_query = companies_query.filter(
-                or_(
+            company_conditions = [
                     func.lower(Companies.name).like(search_term),
                     func.lower(Companies.short_name).like(search_term),
+                    func.lower(Companies.former_name).like(search_term),
+                    func.cast(Companies.previous_names, String).ilike(search_term),
                     func.lower(Companies.registration_number).like(search_term),
+            ]
+            if not identity_only:
+                company_conditions.extend([
                     func.lower(Companies.city).like(search_term),
                     func.lower(Companies.region).like(search_term),
                     func.lower(Companies.industry).like(search_term),
-                    func.lower(Companies.description).like(search_term)
-                )
-            )
+                    func.lower(Companies.description).like(search_term),
+                ])
+            companies_query = companies_query.filter(or_(*company_conditions))
         
         companies_results = companies_query.all()
         
@@ -208,6 +324,7 @@ async def unified_search(
                 region=company.region,
                 logo_url=company.logo_url,
                 additional_info={
+                    "aliases": _entity_aliases(company.name, company.short_name, company.former_name, company.previous_names),
                     "company_type": company.company_type,
                     "industry": company.industry,
                     "registration_number": company.registration_number,
@@ -218,6 +335,42 @@ async def unified_search(
                 }
             ))
     
+    # A regulated institution may also have a parallel company profile. Keep the
+    # bank as the canonical search result while preserving both source records.
+    canonical_results = {}
+    passthrough_results = []
+    regulated_aliases = set()
+    regulated_name_tokens = []
+    entity_priority = {"banks": 3, "insurance": 2, "companies": 1}
+    for result in results:
+        if result.type not in entity_priority:
+            passthrough_results.append(result)
+            continue
+        key = "".join(re.findall(r"[a-z0-9]+", str(result.name or "").casefold()))
+        regulated_aliases.add(key)
+        regulated_names = [result.name, *(result.additional_info or {}).get("aliases", [])]
+        for alias in regulated_names[1:]:
+            regulated_aliases.add("".join(re.findall(r"[a-z0-9]+", str(alias or "").casefold())))
+        regulated_name_tokens.extend(
+            set(re.findall(r"[a-z0-9]+", str(name or "").casefold()))
+            for name in regulated_names
+        )
+        existing = canonical_results.get(key)
+        if not existing or entity_priority[result.type] > entity_priority[existing.type]:
+            canonical_results[key] = result
+    filtered_passthrough = []
+    for result in passthrough_results:
+        compact_key = "".join(re.findall(r"[a-z0-9]+", str(result.name or "").casefold()))
+        person_tokens = set(re.findall(r"[a-z0-9]+", str(result.name or "").casefold()))
+        is_regulated_alias = result.type == "people" and (
+            compact_key in regulated_aliases
+            or (len(person_tokens) >= 2 and any(person_tokens.issubset(tokens) for tokens in regulated_name_tokens))
+        )
+        if not is_regulated_alias:
+            filtered_passthrough.append(result)
+    passthrough_results = filtered_passthrough
+    results = passthrough_results + list(canonical_results.values())
+
     # Calculate total results
     total_results = len(results)
     

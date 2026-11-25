@@ -57,8 +57,10 @@ async def search_insurance(
         db_query = db_query.filter(
             or_(
                 func.lower(Insurance.name).like(search_term),
+                func.lower(Insurance.former_name).like(search_term),
                 func.lower(Insurance.short_name).like(search_term),
                 func.lower(Insurance.license_number).like(search_term),
+                func.lower(Insurance.registration_number).like(search_term),
                 func.lower(Insurance.city).like(search_term),
                 func.lower(Insurance.region).like(search_term),
                 func.lower(Insurance.description).like(search_term)
@@ -138,13 +140,6 @@ async def search_insurance(
     # Apply pagination
     offset = (page - 1) * limit
     insurance_companies = db_query.offset(offset).limit(limit).all()
-    
-    # Update search count for each insurance company
-    for insurance in insurance_companies:
-        insurance.search_count += 1
-        insurance.last_searched = func.now()
-    
-    db.commit()
     
     # Get analytics data for each insurance company
     insurance_with_analytics = []

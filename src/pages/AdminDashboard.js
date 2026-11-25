@@ -15,45 +15,34 @@ import {
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import {
   Users,
-  Key,
   FileText,
   UserCheck,
   Building2,
   Shield,
   CreditCard,
-  BarChart3,
-  Settings,
-  LogOut,
   Menu,
   X,
-  Home,
   Activity,
   TrendingUp,
   Database,
   AlertCircle,
   CheckCircle,
-  Star,
   DollarSign,
-  Percent,
   Clock,
   MapPin,
   Calendar,
   PieChart,
   LineChart,
-  TrendingDown,
   ArrowUp,
-  ArrowDown,
   RefreshCw,
   Eye,
   Target,
   Zap,
   Globe,
-  BookOpen,
-  FolderOpen,
-  Code,
-  FileCode,
   HelpCircle,
-  Scale
+  Scale,
+  Search,
+  Bell
 } from 'lucide-react';
 import UserManagement from '../components/admin/UserManagement';
 import ClientAndRegistrarManagement from '../components/admin/ClientAndRegistrarManagement';
@@ -66,11 +55,11 @@ import PersonsManagementFigma from '../components/admin/PersonsManagementFigma';
 import PersonSearchPage from './PersonSearchPage';
 import PeopleRelationshipsPage from '../components/admin/PeopleRelationshipsPage';
 import EmployeeManagement from '../pages/EmployeeManagement';
-import GazetteManagement from '../pages/GazetteManagement';
+import GazetteRegisterPage from '../components/admin/GazetteRegisterPage';
 import BankManagement from '../components/admin/BankManagement';
 import InsuranceManagement from '../components/admin/InsuranceManagement';
 import CompaniesIndustrySelector from '../components/admin/CompaniesIndustrySelector';
-import CauseListPage from '../components/admin/CauseListPage';
+import CauseListRegisterPage from '../components/admin/CauseListRegisterPage';
 import CauseListPage2 from '../components/admin/CauseListPage2';
 import GazetteUploadPage from '../components/admin/GazetteUploadPage';
 import GazetteApprovalPage from '../components/admin/GazetteApprovalPage';
@@ -92,12 +81,22 @@ import Documentation from '../components/admin/Documentation';
 import FileRepository from './FileRepository';
 import LogsViewer from '../components/LogsViewer';
 import AdminNavbar from '../components/AdminNavbar';
+import AdminHeader from '../components/admin/AdminHeader';
 import AdminDashboardOverview from '../components/AdminDashboardOverview';
-import CaseProfilePage from '../components/admin/CaseProfilePage';
+import CaseProfileRegisterPage from '../components/admin/CaseProfileRegisterPage';
 import RegistrarCaseDetailsPage from '../components/RegistrarCaseDetailsPage';
 import LogoutConfirmationModal from '../components/admin/LogoutConfirmationModal';
 import DashboardSearchHome from '../components/admin/DashboardSearchHome';
-import { apiGet } from '../utils/api';
+import BatchScreeningPage from '../components/admin/BatchScreeningPage';
+import WatchlistPage from '../components/admin/WatchlistPage';
+import DueDiligenceReportsPage from '../components/admin/DueDiligenceReportsPage';
+import DataSourcesPage from '../components/admin/DataSourcesPage';
+import BillingPlanPage from '../components/admin/BillingPlanPage';
+import AdminBillingPlanPage from '../components/admin/AdminBillingPlanPage';
+import LegalCentrePage from '../components/admin/LegalCentrePage';
+import TeamRolesPage from '../components/admin/TeamRolesPage';
+import WorkspaceOverviewPage from '../components/admin/WorkspaceOverviewPage';
+import { apiGet, ensureAuthenticated, logoutSession } from '../utils/api';
 
 ChartJS.register(
   CategoryScale,
@@ -111,15 +110,16 @@ ChartJS.register(
   LineElement
 );
 
-const AdminDashboard = () => {
+const AdminDashboard = ({ workspaceMode = false }) => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('dashboard-search');
+  const [activeTab, setActiveTab] = useState(workspaceMode ? 'overview' : 'dashboard-search');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [globalQuery, setGlobalQuery] = useState('');
+  const [sessionSeconds, setSessionSeconds] = useState(0);
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalCases: 0,
@@ -167,10 +167,14 @@ const AdminDashboard = () => {
 
   // Check authentication and admin status
   useEffect(() => {
-    const checkAuthStatus = () => {
+    let isMounted = true;
+
+    const checkAuthStatus = async () => {
+      const sessionIsValid = await ensureAuthenticated();
+      if (!isMounted) return;
       const authStatus = localStorage.getItem('isAuthenticated');
       const userData = localStorage.getItem('userData');
-      const isAuth = authStatus === 'true';
+      const isAuth = sessionIsValid && authStatus === 'true';
 
       setIsAuthenticated(isAuth);
 
@@ -224,17 +228,23 @@ const AdminDashboard = () => {
     window.addEventListener('storage', handleAuthChange);
 
     return () => {
+      isMounted = false;
       window.removeEventListener('authStateChanged', handleAuthChange);
       window.removeEventListener('storage', handleAuthChange);
     };
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setSessionSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Load dashboard statistics
   useEffect(() => {
-    if (isAdmin) {
+    if (isAdmin && !workspaceMode) {
       loadDashboardStats();
     }
-  }, [isAdmin]);
+  }, [isAdmin, workspaceMode]);
 
   const loadDashboardStats = async () => {
     try {
@@ -362,25 +372,12 @@ const AdminDashboard = () => {
     }
   };
 
-  // Toggle sidebar collapse
-  const toggleSidebar = () => {
-    setIsSidebarCollapsed(!isSidebarCollapsed);
-  };
-
   const handleLogout = () => {
     setShowLogoutModal(true);
   };
 
-  const confirmLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userPicture');
-    localStorage.removeItem('authProvider');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('userData');
-
-    window.dispatchEvent(new CustomEvent('authStateChanged'));
+  const confirmLogout = async () => {
+    await logoutSession();
     navigate('/');
   };
 
@@ -391,7 +388,7 @@ const AdminDashboard = () => {
         <div className="text-center">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-slate-900 mb-2">Authentication Required</h2>
-          <p className="text-slate-600 mb-4">Please log in to access the admin dashboard.</p>
+          <p className="text-slate-600 mb-4">Please log in to access the {workspaceMode ? 'Juridence workspace' : 'admin dashboard'}.</p>
           <button
             onClick={() => navigate('/login')}
             className="bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors"
@@ -403,7 +400,7 @@ const AdminDashboard = () => {
     );
   }
 
-  if (!isAdmin) {
+  if (!isAdmin && !workspaceMode) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
@@ -421,53 +418,26 @@ const AdminDashboard = () => {
     );
   }
 
-  const navigationItems = [
-    // Core Management (0-5)
-    { id: 'overview', name: 'Overview', icon: BarChart3 },
-    { id: 'profile', name: 'Profile', icon: Users },
-    { id: 'users', name: 'Users', icon: UserCheck },
-    { id: 'roles', name: 'Roles & Permissions', icon: Shield },
-    { id: 'api-keys', name: 'API Keys', icon: Key },
-    { id: 'settings', name: 'Settings', icon: Settings },
-
-    // Legal & Court Management (6-11)
-    { id: 'cases', name: 'Cases', icon: FileText },
-    { id: 'case-hearings', name: 'Case Hearing Details', icon: Calendar },
-    { id: 'judges', name: 'Judges', icon: Scale },
-    { id: 'courts', name: 'Courts', icon: MapPin },
-    { id: 'court-types', name: 'Court Types', icon: Building2 },
-    { id: 'gazette', name: 'Gazette', icon: FileText },
-
-    // People & Organizations (12-18)
-    { id: 'people', name: 'People', icon: UserCheck },
-    { id: 'people-relationships', name: 'Relationships', icon: UserCheck },
-    { id: 'employees', name: 'Employees', icon: Users },
-    { id: 'banks', name: 'Banks', icon: Building2 },
-    { id: 'insurance', name: 'Insurance', icon: Shield },
-    { id: 'companies', name: 'Companies', icon: Database },
-    { id: 'tenants', name: 'Organizations', icon: Globe },
-
-    // Financial & Operations (18-20)
-    { id: 'payments', name: 'Payments', icon: CreditCard },
-    { id: 'subscription-requests', name: 'Subscription Requests', icon: Clock },
-    { id: 'file-repository', name: 'File Repository', icon: FolderOpen },
-
-    // Advanced Tools (21-24)
-    { id: 'ai-analytics', name: 'AI Analytics', icon: Zap },
-    { id: 'documentation', name: 'Documentation', icon: BookOpen },
-    { id: 'logs', name: 'System Logs', icon: Activity }
-  ];
-
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard-search':
         return <DashboardSearchHome userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
+      case 'batch-screening':
+        return <BatchScreeningPage onNavigate={setActiveTab} />;
+      case 'watchlist':
+        return <WatchlistPage onNavigate={setActiveTab} />;
+      case 'due-diligence-reports':
+        return <DueDiligenceReportsPage onNavigate={setActiveTab} />;
       case 'overview':
-        return <AdminDashboardOverview stats={stats} userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
+        return workspaceMode
+          ? <WorkspaceOverviewPage userInfo={userInfo} onNavigate={setActiveTab} />
+          : <AdminDashboardOverview stats={stats} userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'profile':
         return <ProfileManagement userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'users':
         return <UserManagement userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
+      case 'team-roles':
+        return <TeamRolesPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'clients-registrars':
         return <ClientAndRegistrarManagement userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'api-keys':
@@ -487,7 +457,7 @@ const AdminDashboard = () => {
       case 'employees':
         return <EmployeeManagement />;
       case 'gazette':
-        return <GazetteManagement />;
+        return <GazetteRegisterPage onNavigate={setActiveTab} />;
       case 'gazette-upload':
         return <GazetteUploadPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'gazette-approval':
@@ -507,11 +477,11 @@ const AdminDashboard = () => {
       case 'companies':
         return <CompaniesIndustrySelector userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'case-hearings':
-        return <CauseListPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
+        return <CauseListRegisterPage />;
       case 'case-hearings-2':
         return <CauseListPage2 userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'case-profile':
-        return <CaseProfilePage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} isRegistrar={false} />;
+        return <CaseProfileRegisterPage />;
       case 'payments':
         return <RevenuePage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       case 'subscription-requests':
@@ -526,10 +496,18 @@ const AdminDashboard = () => {
         return <Documentation />;
       case 'file-repository':
         return <FileRepository />;
-      case 'logs':
+      case 'data-sources':
+        return <DataSourcesPage onNavigate={setActiveTab} canManageSources={!workspaceMode && isAdmin} />;
+      case 'billing-plan':
+        return workspaceMode
+          ? <BillingPlanPage onNavigate={setActiveTab} />
+          : <AdminBillingPlanPage userInfo={userInfo} onNavigate={setActiveTab} />;
+      case 'legal-centre':
+        return <LegalCentrePage />;
+      case 'system-logs':
         return <LogsViewer />;
       case 'roles':
-        return <RolesPermissionsManagement />;
+        return <RolesPermissionsManagement userInfo={userInfo} onNavigate={setActiveTab} />;
       case 'settings':
         return <SystemSettingsPage userInfo={userInfo} onNavigate={setActiveTab} onLogout={handleLogout} />;
       default:
@@ -537,20 +515,108 @@ const AdminDashboard = () => {
     }
   };
 
+  const screenMeta = {
+    'dashboard-search': ['Entity Enquiry', 'JUR.ENQ.001'],
+    'batch-screening': ['Batch Screening', 'JUR.ENQ.002'],
+    watchlist: ['Watchlist', 'JUR.MON.001'],
+    'due-diligence-reports': ['Due Diligence Reports', 'JUR.RPT.002'],
+    overview: ['Dashboard Overview', 'JUR.DSH.001'],
+    'clients-registrars': ['Clients & Registrars', 'JUR.ADM.001'],
+    users: ['User Management', 'JUR.ADM.002'],
+    'person-search': ['Person Search', 'JUR.PER.001'],
+    'people-relationships': ['People Records', 'JUR.PER.002'],
+    companies: ['Companies', 'JUR.ENT.001'],
+    'case-hearings': ['Cause List', 'JUR.CAS.001'],
+    'case-profile': ['Case Profiles', 'JUR.CAS.002'],
+    gazette: ['Gazette', 'JUR.GAZ.001'],
+    'search-requests': ['Search Requests', 'JUR.REQ.001'],
+    logs: ['Reports & Logs', 'JUR.RPT.001'],
+    'data-sources': ['Data Sources', 'JUR.DAT.001'],
+    'file-repository': ['Data Ingestion', 'JUR.DAT.002'],
+    'billing-plan': ['Billing & Plan', 'JUR.ADM.006'],
+    payments: ['Revenue & Billing', 'JUR.ADM.006'],
+    'subscription-requests': ['Subscriptions', 'JUR.ADM.007'],
+    'api-keys': ['API & Integrations', 'JUR.ADM.003'],
+    'audit-logs': ['Audit Log', 'JUR.ADM.004'],
+    roles: ['Roles & Permissions', 'JUR.ADM.008'],
+    'team-roles': ['Team & Roles', 'JUR.ORG.001'],
+    tenants: ['Organisations', 'JUR.ADM.009'],
+    courts: ['Courts', 'JUR.DAT.003'],
+    settings: ['Settings', 'JUR.ADM.005'],
+    documentation: ['Documentation', 'JUR.DOC.001'],
+    'legal-centre': ['Legal Centre', 'JUR.LEG.001'],
+    'system-logs': ['System Logs', 'JUR.ADM.010'],
+  };
+  const [screenLabel, screenCode] = screenMeta[activeTab] || ['Juridence Workspace', 'JUR.APP.001'];
+  const displayName = userInfo?.name
+    || [userInfo?.first_name, userInfo?.last_name].filter(Boolean).join(' ')
+    || userInfo?.email?.split('@')[0]
+    || localStorage.getItem('userName')
+    || 'Administrator';
+  const organisation = userInfo?.organization_name || userInfo?.organisation_name || 'Juridence';
+  const sessionTime = [
+    Math.floor(sessionSeconds / 3600),
+    Math.floor((sessionSeconds % 3600) / 60),
+    sessionSeconds % 60,
+  ].map((part) => String(part).padStart(2, '0')).join(':');
+
+  const handleGlobalSearch = (event) => {
+    event.preventDefault();
+    const query = globalQuery.trim();
+    if (!query) return;
+    setActiveTab('dashboard-search');
+    window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('juridence:global-search', { detail: { query } }));
+    }, 0);
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="juridence-dd-shell">
+      <header className="dd-appbar">
+        <button
+          type="button"
+          onClick={() => setIsSidebarOpen(true)}
+          className="dd-appbar-menu"
+          aria-label="Open navigation"
+        >
+          <Menu size={18} />
+        </button>
+        <button type="button" className="dd-appbar-logo" onClick={() => setActiveTab('overview')} aria-label="Juridence dashboard">
+          <img src="/logos/logo-white.png" alt="Juridence" />
+        </button>
+        <span className="dd-environment">LIVE</span>
+        <form className="dd-global-search" onSubmit={handleGlobalSearch}>
+          <Search size={14} aria-hidden="true" />
+          <input
+            type="search"
+            value={globalQuery}
+            onChange={(event) => setGlobalQuery(event.target.value)}
+            placeholder="Entity enquiry - name or suit number"
+            aria-label="Search Juridence"
+          />
+          <button type="submit">Go</button>
+        </form>
+        <div className="dd-appbar-spacer" />
+        <button type="button" className="dd-appbar-link" onClick={() => setActiveTab(workspaceMode ? 'watchlist' : 'search-requests')}>
+          <Bell size={14} /> Alerts
+        </button>
+        {!workspaceMode && <button type="button" className="dd-appbar-link" onClick={() => setActiveTab('settings')}><HelpCircle size={14} /> Help</button>}
+        <div className="dd-appbar-user">
+          <strong>{displayName}</strong>
+          <span>{workspaceMode ? 'Workspace user' : 'Administrator'} · {organisation}</span>
+        </div>
+        <button type="button" className="dd-appbar-logout" onClick={handleLogout}>Log out</button>
+      </header>
+
       {/* Mobile sidebar backdrop */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
+          className="dd-sidebar-backdrop"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar - New Figma Design */}
-      <div className={`fixed inset-y-0 left-0 z-50 shadow-lg transform transition-all duration-300 ease-in-out lg:translate-x-0 ${
-        isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`}>
+      <div className={`dd-sidebar-wrap${isSidebarOpen ? ' is-open' : ''}`}>
         <AdminNavbar
           activeTab={activeTab}
           setActiveTab={(tab) => {
@@ -558,26 +624,28 @@ const AdminDashboard = () => {
             setIsSidebarOpen(false);
           }}
           onLogout={handleLogout}
-          isSidebarCollapsed={isSidebarCollapsed}
+          isSystemAdmin={!workspaceMode && isAdmin}
         />
       </div>
 
-      {/* Main content */}
-      <div className={`min-h-screen transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'}`}>
-        {/* Mobile menu button */}
-        <button
-          onClick={() => setIsSidebarOpen(true)}
-          className="lg:hidden fixed top-4 left-4 z-30 p-2 bg-white rounded-md shadow-lg hover:bg-slate-100"
-          aria-label="Open navigation"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-
-        {/* Page content - Full screen without top bar */}
-        <div className="h-full bg-slate-50">
-          {renderContent()}
+      <div className="juridence-dd-content">
+        <div className="juridence-dd-page">
+          {!['dashboard-search', 'due-diligence-reports'].includes(activeTab) && <AdminHeader contextLabel={screenLabel} />}
+          <div className="juridence-dd-view">{renderContent()}</div>
         </div>
       </div>
+
+      <footer className="dd-statusbar">
+        <span className="dd-ready">● Ready</span>
+        <span>User <strong>{displayName}</strong></span>
+        <span>Role <strong>{workspaceMode ? 'Workspace user' : 'Administrator'}</strong></span>
+        <span>Organisation <strong>{organisation}</strong></span>
+        <span>Session <strong>{sessionTime}</strong></span>
+        <span>Screen <strong>{screenCode}</strong></span>
+        <span className="dd-status-spacer" />
+        <span>{screenLabel}</span>
+        <span>v1.0.0 · LIVE</span>
+      </footer>
 
       {/* Logout Confirmation Modal */}
       {showLogoutModal && (

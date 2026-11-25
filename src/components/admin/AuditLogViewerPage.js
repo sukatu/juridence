@@ -1,808 +1,129 @@
-import React, { useState, useEffect, useRef } from 'react';
-import AdminHeader from './AdminHeader';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  ChevronLeft,
+  ChevronRight,
+  Database,
+  Download,
+  Eye,
+  FileClock,
+  Loader2,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  X,
+} from 'lucide-react';
 import { apiGet } from '../../utils/api';
-import { Search, ChevronDown, Download, Calendar, Filter, Eye, MoreVertical } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
-const AuditLogViewerPage = ({ userInfo, onNavigate, onLogout }) => {
-  const [logs, setLogs] = useState([]);
+const formatDateTime = (value) => {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Not recorded';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).format(date);
+};
+
+const valueText = (value) => {
+  if (value === null || value === undefined || value === '') return 'Not recorded';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value, null, 2);
+};
+
+const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+const AuditLogViewerPage = () => {
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showDateMenu, setShowDateMenu] = useState(false);
-  const [showTableMenu, setShowTableMenu] = useState(false);
-  const [showActionMenu, setShowActionMenu] = useState(false);
-  const [showSortMenu, setShowSortMenu] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedLog, setSelectedLog] = useState(null);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
-  const [dateRange, setDateRange] = useState('30'); // days
-  const [tableFilter, setTableFilter] = useState('');
-  const [actionFilter, setActionFilter] = useState('');
-  const [sortBy, setSortBy] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState('desc');
-  const [users, setUsers] = useState({});
-  const [stats, setStats] = useState({ total: 0, inserts: 0, updates: 0, deletes: 0 });
+  const [error, setError] = useState('');
+  const [days, setDays] = useState('30');
+  const [eventType, setEventType] = useState('');
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState(null);
 
-  const dateMenuRef = useRef(null);
-  const tableMenuRef = useRef(null);
-  const actionMenuRef = useRef(null);
-  const sortMenuRef = useRef(null);
-  const exportMenuRef = useRef(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
-  const tableNames = [
-    { value: '', label: 'All Tables' },
-    { value: 'users', label: 'Users' },
-    { value: 'people', label: 'People' },
-    { value: 'cases', label: 'Cases' },
-    { value: 'companies', label: 'Companies' },
-    { value: 'gazettes', label: 'Gazettes' },
-    { value: 'gazette_entries', label: 'Gazette Entries' },
-    { value: 'courts', label: 'Courts' },
-    { value: 'judges', label: 'Judges' }
-  ];
-
-  const actionTypes = [
-    { value: '', label: 'All Actions' },
-    { value: 'INSERT', label: 'Insert' },
-    { value: 'UPDATE', label: 'Update' },
-    { value: 'DELETE', label: 'Delete' }
-  ];
-
-  // Format date
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
+  const loadEvents = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + 
-             ' - ' + date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  // Get date range for API
-  const getDateRange = () => {
-    const days = parseInt(dateRange);
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - days);
-    return {
-      start: startDate.toISOString(),
-      end: endDate.toISOString()
-    };
-  };
-
-  // Get action badge class
-  const getActionBadgeClass = (action) => {
-    switch (action?.toUpperCase()) {
-      case 'INSERT':
-        return { bg: 'bg-green-100', text: 'text-green-700', label: 'Insert' };
-      case 'UPDATE':
-        return { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Update' };
-      case 'DELETE':
-        return { bg: 'bg-red-100', text: 'text-red-700', label: 'Delete' };
-      default:
-        return { bg: 'bg-gray-100', text: 'text-gray-700', label: action || 'N/A' };
-    }
-  };
-
-  // Get table label
-  const getTableLabel = (tableName) => {
-    const table = tableNames.find(t => t.value === tableName);
-    return table ? table.label : tableName || 'N/A';
-  };
-
-  // Load users to map user IDs to names
-  const loadUsers = async () => {
-    try {
-      const response = await apiGet('/admin/users?limit=1000');
-      if (response && response.users) {
-        const userMap = {};
-        response.users.forEach(user => {
-          userMap[user.id] = {
-            name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email || 'Unknown',
-            email: user.email
-          };
-        });
-        setUsers(userMap);
-      }
-    } catch (error) {
-      console.error('Error loading users:', error);
-    }
-  };
-
-  // Load audit logs
-  const loadLogs = async () => {
-    try {
-      setLoading(true);
-      
-      const { start, end } = getDateRange();
-      
-      const params = new URLSearchParams({
-        limit: '1000',
-        offset: '0',
-        start_date: start,
-        end_date: end
-      });
-
-      if (tableFilter) {
-        params.append('table_name', tableFilter);
-      }
-
-      const response = await apiGet(`/admin/logs/audit?${params.toString()}`);
-      let allLogs = response?.logs || [];
-
-      // Apply action filter
-      if (actionFilter) {
-        allLogs = allLogs.filter(log => log.action === actionFilter);
-      }
-
-      // Apply search
-      if (searchTerm) {
-        const searchLower = searchTerm.toLowerCase();
-        allLogs = allLogs.filter(log => {
-          const userName = users[log.user_id]?.name || 'Unknown';
-          return (
-            userName.toLowerCase().includes(searchLower) ||
-            (log.table_name && log.table_name.toLowerCase().includes(searchLower)) ||
-            (log.record_id && log.record_id.toLowerCase().includes(searchLower)) ||
-            (log.field_name && log.field_name.toLowerCase().includes(searchLower)) ||
-            (log.action && log.action.toLowerCase().includes(searchLower)) ||
-            (log.old_value && log.old_value.toString().toLowerCase().includes(searchLower)) ||
-            (log.new_value && log.new_value.toString().toLowerCase().includes(searchLower))
-          );
-        });
-      }
-
-      // Calculate stats
-      setStats({
-        total: allLogs.length,
-        inserts: allLogs.filter(l => l.action === 'INSERT').length,
-        updates: allLogs.filter(l => l.action === 'UPDATE').length,
-        deletes: allLogs.filter(l => l.action === 'DELETE').length
-      });
-
-      // Sort
-      allLogs.sort((a, b) => {
-        let aVal, bVal;
-        if (sortBy === 'created_at') {
-          aVal = new Date(a.created_at || 0);
-          bVal = new Date(b.created_at || 0);
-        } else {
-          aVal = a[sortBy] || '';
-          bVal = b[sortBy] || '';
-        }
-        
-        if (sortOrder === 'asc') {
-          return aVal > bVal ? 1 : -1;
-        } else {
-          return aVal < bVal ? 1 : -1;
-        }
-      });
-
-      // Apply pagination
-      const total = allLogs.length;
-      const totalPages = Math.ceil(total / pagination.limit);
-      const startIndex = (pagination.page - 1) * pagination.limit;
-      const endIndex = startIndex + pagination.limit;
-      const paginatedLogs = allLogs.slice(startIndex, endIndex);
-
-      setLogs(paginatedLogs);
-      setPagination(prev => ({ ...prev, total, totalPages }));
-      
-    } catch (error) {
-      console.error('Error loading audit logs:', error);
-      alert('Failed to load audit logs');
+      setData(await apiGet('/workspace/audit', {
+        days,
+        event_type: eventType,
+        search: debouncedQuery,
+        page,
+        limit: 25,
+      }));
+    } catch (requestError) {
+      setError(requestError.message || 'Audit activity could not be loaded.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [days, eventType, debouncedQuery, page]);
 
-  useEffect(() => {
-    loadUsers();
-    loadLogs(); // Load logs immediately, don't wait for users
-  }, []);
+  useEffect(() => { loadEvents(); }, [loadEvents]);
+  useEffect(() => { setPage(1); }, [days, eventType, debouncedQuery]);
 
-  useEffect(() => {
-    loadLogs();
-  }, [pagination.page, tableFilter, actionFilter, sortBy, sortOrder, dateRange]);
+  const events = data?.events || [];
+  const stats = data?.stats || {};
+  const rangeLabel = useMemo(() => {
+    if (!data?.total) return 'No events';
+    const start = (data.page - 1) * data.limit + 1;
+    const end = Math.min(data.total, start + events.length - 1);
+    return `${start}-${end} of ${data.total}`;
+  }, [data, events.length]);
 
-  // Close dropdowns on outside click
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dateMenuRef.current && !dateMenuRef.current.contains(event.target)) {
-        setShowDateMenu(false);
-      }
-      if (tableMenuRef.current && !tableMenuRef.current.contains(event.target)) {
-        setShowTableMenu(false);
-      }
-      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target)) {
-        setShowActionMenu(false);
-      }
-      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target)) {
-        setShowSortMenu(false);
-      }
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
-        setShowExportMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // Handle search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setPagination(prev => ({ ...prev, page: 1 }));
-      loadLogs();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
-
-  // Export to CSV
-  const exportToCSV = () => {
-    const exportData = logs.map(log => {
-      const userName = users[log.user_id]?.name || 'Unknown';
-      const actionInfo = getActionBadgeClass(log.action);
-      return {
-        'ID': log.id || 'N/A',
-        'User': userName,
-        'Table': getTableLabel(log.table_name),
-        'Record ID': log.record_id || 'N/A',
-        'Action': actionInfo.label,
-        'Field Name': log.field_name || 'N/A',
-        'Old Value': log.old_value || 'N/A',
-        'New Value': log.new_value || 'N/A',
-        'IP Address': log.ip_address || 'N/A',
-        'Timestamp': formatDate(log.created_at)
-      };
-    });
-
-    const headers = Object.keys(exportData[0]);
-    let csvContent = headers.join(',') + '\n';
-    
-    exportData.forEach(row => {
-      const values = headers.map(header => {
-        const value = row[header] || '';
-        if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
-      });
-      csvContent += values.join(',') + '\n';
-    });
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
+  const exportCsv = () => {
+    const headings = ['Date and time', 'Actor', 'Email', 'Source', 'Action', 'Resource', 'Record', 'IP address', 'Description'];
+    const rows = events.map((event) => [event.created_at, event.user_name, event.user_email, event.source, event.action, event.resource, event.record_id, event.ip_address, event.description]);
+    const csv = [headings, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `audit_logs_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `juridence-audit-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
-    document.body.removeChild(link);
-    setShowExportMenu(false);
-  };
-
-  // Export to Excel
-  const exportToExcel = () => {
-    const exportData = logs.map(log => {
-      const userName = users[log.user_id]?.name || 'Unknown';
-      const actionInfo = getActionBadgeClass(log.action);
-      return {
-        'ID': log.id || 'N/A',
-        'User': userName,
-        'Table': getTableLabel(log.table_name),
-        'Record ID': log.record_id || 'N/A',
-        'Action': actionInfo.label,
-        'Field Name': log.field_name || 'N/A',
-        'Old Value': log.old_value || 'N/A',
-        'New Value': log.new_value || 'N/A',
-        'IP Address': log.ip_address || 'N/A',
-        'Timestamp': formatDate(log.created_at)
-      };
-    });
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Audit Logs');
-    XLSX.writeFile(wb, `audit_logs_${new Date().toISOString().split('T')[0]}.xlsx`);
-    setShowExportMenu(false);
-  };
-
-  // Handle page change
-  const handlePageChange = (newPage) => {
-    setPagination(prev => ({ ...prev, page: newPage }));
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="bg-[#F7F8FA] min-h-screen w-full">
-      {/* Header */}
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
+    <section className="dd-module-shell">
+      <div className="dd-module-heading">
+        <div><p className="dd-eyebrow">Governance and traceability</p><h2>Audit Log</h2><p>Organisation-scoped activity, data changes and account-security events.</p></div>
+        <div className="dd-heading-actions"><button type="button" className="dd-button dd-button-secondary" onClick={loadEvents} disabled={loading}><RefreshCw size={14} /> Refresh</button><button type="button" className="dd-button dd-button-primary" onClick={exportCsv} disabled={!events.length}><Download size={14} /> Export page</button></div>
+      </div>
 
-      {/* Main Content */}
-      <div className="px-6 w-full">
-        <div className="flex flex-col w-full bg-white pt-4 pb-6 px-6 gap-6 rounded-lg">
-          {/* Title */}
-          <div className="flex flex-col items-start gap-2">
-            <span className="text-[#040E1B] text-xl whitespace-nowrap">Audit Log Viewer</span>
-            <span className="text-[#040E1B] text-base whitespace-nowrap">
-              View and track all database changes and modifications.
-            </span>
-          </div>
+      <div className="dd-kpi-row dd-kpi-row-four" aria-label="Audit summary">
+        <article><FileClock size={19} /><div><strong>{stats.total || 0}</strong><span>All events</span></div></article>
+        <article><Activity size={19} /><div><strong>{stats.activity || 0}</strong><span>Workspace activity</span></div></article>
+        <article><Database size={19} /><div><strong>{stats.data_changes || 0}</strong><span>Data changes</span></div></article>
+        <article><ShieldAlert size={19} /><div><strong>{stats.security_events || 0}</strong><span>Security events</span></div></article>
+      </div>
 
-          {/* Stats Cards */}
-          <div className="flex items-start w-full gap-6">
-            <div className="flex flex-col items-center bg-white text-left flex-1 py-4 gap-2 rounded-lg border border-solid border-[#D4E1EA]" style={{ boxShadow: '2px 2px 2px #0708101A' }}>
-              <span className="text-[#040E1B] text-lg whitespace-nowrap">{stats.total.toLocaleString()}</span>
-              <span className="text-[#525866] text-base whitespace-nowrap">Total Audit Logs</span>
-            </div>
-            <div className="flex flex-col items-center bg-white text-left flex-1 py-4 gap-2 rounded-lg border border-solid border-[#D4E1EA]" style={{ boxShadow: '2px 2px 2px #0708101A' }}>
-              <span className="text-green-600 text-lg whitespace-nowrap">{stats.inserts.toLocaleString()}</span>
-              <span className="text-[#525866] text-base whitespace-nowrap">Inserts</span>
-            </div>
-            <div className="flex flex-col items-center bg-white text-left flex-1 py-4 gap-2 rounded-lg border border-solid border-[#D4E1EA]" style={{ boxShadow: '2px 2px 2px #0708101A' }}>
-              <span className="text-blue-600 text-lg whitespace-nowrap">{stats.updates.toLocaleString()}</span>
-              <span className="text-[#525866] text-base whitespace-nowrap">Updates</span>
-            </div>
-            <div className="flex flex-col items-center bg-white text-left flex-1 py-4 gap-2 rounded-lg border border-solid border-[#D4E1EA]" style={{ boxShadow: '2px 2px 2px #0708101A' }}>
-              <span className="text-red-600 text-lg whitespace-nowrap">{stats.deletes.toLocaleString()}</span>
-              <span className="text-[#525866] text-base whitespace-nowrap">Deletes</span>
-                </div>
-              </div>
+      {error && <div className="dd-inline-alert is-error"><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Dismiss"><X size={14} /></button></div>}
 
-          {/* Filter Controls */}
-          <div className="flex justify-between items-center w-full">
-            <div className="flex-1 pb-0.5 mr-4">
-              <div className="flex items-center self-stretch bg-[#F7F8FA] py-[7px] px-2 gap-1.5 rounded-[5px] border border-solid border-[#F7F8FA]">
-                <Search className="w-[11px] h-[11px] text-[#868C98]" />
-                <input
-                  type="text"
-                  placeholder="Search by user, table, record ID, field name..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="flex-1 text-[#868C98] bg-transparent text-[10px] border-0 outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-[#525866] text-xs whitespace-nowrap">Show data for</span>
-              <div ref={dateMenuRef} className="relative">
-                <button
-                  onClick={() => setShowDateMenu(!showDateMenu)}
-                  className="flex items-center bg-[#F7F8FA] p-2 gap-1 rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100"
-                >
-                  <Calendar className="w-4 h-4 text-gray-600" />
-                  <span className="text-[#070810] text-sm whitespace-nowrap">
-                    Last {dateRange} days (as of {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })})
-                  </span>
-                  <ChevronDown className="w-4 h-4 text-gray-600" />
-                </button>
-                {showDateMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-2">
-                    {[7, 30, 60, 90, 365].map(days => (
-                      <button
-                        key={days}
-                        onClick={() => {
-                          setDateRange(days.toString());
-                          setShowDateMenu(false);
-                          setPagination(prev => ({ ...prev, page: 1 }));
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded ${
-                          dateRange === days.toString() ? 'bg-blue-50 text-blue-600' : ''
-                        }`}
-                      >
-                        Last {days} days
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div ref={tableMenuRef} className="relative">
-                <button
-                  onClick={() => setShowTableMenu(!showTableMenu)}
-                  className="flex items-center bg-[#F7F8FA] text-left p-2 gap-0.5 rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100 transition-colors"
-                >
-                  <Filter className="w-4 h-4 text-gray-600" />
-                  <span className="text-[#070810] text-sm whitespace-nowrap">
-                    {tableFilter ? getTableLabel(tableFilter) : 'Table'}
-                  </span>
-                  <ChevronDown className="w-4 h-4 text-gray-600" />
-                </button>
-                {showTableMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-2 max-h-64 overflow-y-auto">
-                    {tableNames.map(table => (
-                      <button
-                        key={table.value}
-                        onClick={() => {
-                          setTableFilter(table.value);
-                          setShowTableMenu(false);
-                          setPagination(prev => ({ ...prev, page: 1 }));
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded ${
-                          tableFilter === table.value ? 'bg-blue-50 text-blue-600' : ''
-                        }`}
-                      >
-                        {table.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                </div>
-              <div ref={actionMenuRef} className="relative">
-                <button
-                  onClick={() => setShowActionMenu(!showActionMenu)}
-                  className="flex items-center bg-[#F7F8FA] text-left p-2 gap-[3px] rounded-lg border border-solid border-[#D4E1EA] hover:bg-gray-100 transition-colors"
-                >
-                  <span className="text-[#070810] text-sm whitespace-nowrap">
-                    {actionFilter ? actionTypes.find(t => t.value === actionFilter)?.label : 'Action'}
-                  </span>
-                  <ChevronDown className="w-4 h-4 text-gray-600" />
-                </button>
-                {showActionMenu && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-2">
-                    {actionTypes.map(type => (
-                      <button
-                        key={type.value}
-                        onClick={() => {
-                          setActionFilter(type.value);
-                          setShowActionMenu(false);
-                          setPagination(prev => ({ ...prev, page: 1 }));
-                        }}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded ${
-                          actionFilter === type.value ? 'bg-blue-50 text-blue-600' : ''
-                        }`}
-                      >
-                        {type.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div ref={sortMenuRef} className="relative">
-                <button
-                  onClick={() => setShowSortMenu(!showSortMenu)}
-                  className="flex items-center py-[7px] px-[9px] gap-[5px] rounded border border-solid border-[#D4E1EA] cursor-pointer hover:bg-gray-50"
-                >
-                  <ChevronDown className="w-[11px] h-[11px] text-[#525866]" />
-                  <span className="text-[#525866] text-xs whitespace-nowrap">Sort</span>
-                </button>
-                {showSortMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-3">
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => {
-                          setSortBy('created_at');
-                          setSortOrder('desc');
-                          setShowSortMenu(false);
-                          setPagination(prev => ({ ...prev, page: 1 }));
-                        }}
-                        className={`w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-100 ${
-                          sortBy === 'created_at' && sortOrder === 'desc' ? 'bg-blue-50 text-blue-600' : ''
-                        }`}
-                      >
-                        Date (Newest First)
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSortBy('created_at');
-                          setSortOrder('asc');
-                          setShowSortMenu(false);
-                          setPagination(prev => ({ ...prev, page: 1 }));
-                        }}
-                        className={`w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-100 ${
-                          sortBy === 'created_at' && sortOrder === 'asc' ? 'bg-blue-50 text-blue-600' : ''
-                        }`}
-                      >
-                        Date (Oldest First)
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div ref={exportMenuRef} className="relative">
-                <button
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  className="flex items-center bg-transparent text-left py-1 px-4 gap-[7px] rounded-lg border border-solid border-[#F59E0B] hover:bg-orange-50 transition-colors"
-                >
-                  <span className="text-[#F59E0B] text-base whitespace-nowrap">Export</span>
-                  <Download className="w-4 h-4 text-[#F59E0B]" />
-                </button>
-                {showExportMenu && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                    <button
-                      onClick={exportToCSV}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      Export to CSV
-                    </button>
-                    <button
-                      onClick={exportToExcel}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      Export to Excel
-                  </button>
-                  </div>
-                )}
-              </div>
-            </div>
-                </div>
-
-          {/* Audit Logs Table */}
-          {loading ? (
-            <div className="flex justify-center items-center py-12 w-full">
-              <span className="text-gray-500">Loading audit logs...</span>
-            </div>
-          ) : logs.length === 0 ? (
-            <div className="flex justify-center items-center py-12 w-full">
-              <span className="text-gray-500">No audit logs found</span>
-            </div>
-          ) : (
-                <div className="flex flex-col w-full gap-1 rounded-[14px] border border-solid border-[#E5E8EC] overflow-hidden">
-                  {/* Table Header */}
-                  <div className="flex items-start w-full bg-[#F4F6F9] py-4 px-4 gap-3">
-                <div className="flex flex-col items-start w-[12%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">User</span>
-                </div>
-                <div className="flex flex-col items-start w-[10%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Table</span>
-                </div>
-                <div className="flex flex-col items-start w-[10%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Record ID</span>
-                </div>
-                <div className="flex flex-col items-start w-[10%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Action</span>
-                </div>
-                <div className="flex flex-col items-start w-[12%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Field</span>
-                </div>
-                <div className="flex flex-col items-start w-[15%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Old Value</span>
-                </div>
-                <div className="flex flex-col items-start w-[15%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">New Value</span>
-                </div>
-                <div className="flex flex-col items-start w-[14%] py-[7px]">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Timestamp</span>
-                </div>
-                <div className="w-[2%] flex-shrink-0 py-[7px] flex justify-center">
-                  <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Actions</span>
-                </div>
-              </div>
-
-              {/* Table Rows */}
-              {logs.map((item, idx) => {
-                const actionInfo = getActionBadgeClass(item.action);
-                const userName = users[item.user_id]?.name || 'Unknown';
-                const oldValue = item.old_value ? (typeof item.old_value === 'string' ? item.old_value : JSON.stringify(item.old_value)) : '-';
-                const newValue = item.new_value ? (typeof item.new_value === 'string' ? item.new_value : JSON.stringify(item.new_value)) : '-';
-                
-                return (
-                  <div 
-                    key={idx} 
-                    className="flex items-center w-full py-3 px-4 gap-3 hover:bg-blue-50 transition-colors"
-                  >
-                    <div className="flex flex-col items-start w-[12%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{userName}</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[10%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{getTableLabel(item.table_name)}</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[10%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{item.record_id || 'N/A'}</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[10%] py-[7px]">
-                      <span className={`text-xs px-2 py-1 rounded ${actionInfo.bg} ${actionInfo.text} whitespace-nowrap`}>
-                        {actionInfo.label}
-                      </span>
-                    </div>
-                    <div className="flex flex-col items-start w-[12%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{item.field_name || 'N/A'}</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[15%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full" title={oldValue}>
-                        {oldValue.length > 20 ? oldValue.substring(0, 20) + '...' : oldValue}
-                      </span>
-                  </div>
-                    <div className="flex flex-col items-start w-[15%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full" title={newValue}>
-                        {newValue.length > 20 ? newValue.substring(0, 20) + '...' : newValue}
-                      </span>
-                      </div>
-                    <div className="flex flex-col items-start w-[14%] py-[7px]">
-                      <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">{formatDate(item.created_at)}</span>
-                    </div>
-                    <div className="w-[2%] flex-shrink-0 flex items-center justify-center py-[7px]">
-                      <button
-                        onClick={() => {
-                          setSelectedLog({...item, userName});
-                          setShowDetailModal(true);
-                        }}
-                        className="p-1 hover:bg-gray-100 rounded"
-                        title="View Details"
-                      >
-                        <Eye className="w-4 h-4 text-gray-600" />
-                      </button>
-                </div>
-              </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Pagination */}
-          {!loading && logs.length > 0 && (
-            <div className="flex items-center justify-start w-full">
-              <span className="text-[#525866] text-sm mr-[42px] whitespace-nowrap">
-                {((pagination.page - 1) * pagination.limit) + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
-              </span>
-              <button 
-                onClick={() => handlePageChange(pagination.page - 1)}
-                disabled={pagination.page === 1}
-                className="flex items-start bg-white text-left w-[70px] py-2 px-3 mr-1.5 gap-1 rounded border border-solid border-[#D4E1EA] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <img
-                  src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/89iv7huw_expires_30_days.png"
-                  className="w-4 h-4 rounded object-fill"
-                />
-                <span className="text-[#525866] text-xs whitespace-nowrap">Back</span>
-              </button>
-              
-              {/* Page Numbers */}
-              {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                let pageNum;
-                if (pagination.totalPages <= 5) {
-                  pageNum = i + 1;
-                } else if (pagination.page <= 3) {
-                  pageNum = i + 1;
-                } else if (pagination.page >= pagination.totalPages - 2) {
-                  pageNum = pagination.totalPages - 4 + i;
-                } else {
-                  pageNum = pagination.page - 2 + i;
-                }
-                
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => handlePageChange(pageNum)}
-                    className={`flex flex-col items-start py-[7px] px-2 mr-1.5 rounded border border-solid ${
-                      pagination.page === pageNum
-                        ? 'bg-[#022658] border-[#022658]'
-                        : 'bg-white border-[#D4E1EA] hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className={`text-xs whitespace-nowrap ${
-                      pagination.page === pageNum ? 'text-white font-bold' : 'text-[#525866]'
-                    }`}>
-                      {pageNum}
-                    </span>
-                  </button>
-                );
-              })}
-              
-              <button 
-                onClick={() => handlePageChange(pagination.page + 1)}
-                disabled={pagination.page >= pagination.totalPages}
-                className="flex items-start bg-white text-left w-[68px] py-2 px-3 mr-10 gap-1.5 rounded border border-solid border-[#D4E1EA] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="text-[#525866] text-xs whitespace-nowrap">Next</span>
-                <img
-                  src="https://storage.googleapis.com/tagjs-prod.appspot.com/v1/Iq8V0MifpP/u1o3gwuf_expires_30_days.png"
-                  className="w-4 h-4 rounded object-fill"
-                />
-              </button>
-              <div className="flex items-center w-[119px]">
-                <span className="text-[#040E1B] text-sm mr-[11px] whitespace-nowrap">Page</span>
-                <input
-                  type="number"
-                  min="1"
-                  max={pagination.totalPages}
-                  value={pagination.page}
-                  onChange={(e) => {
-                    const page = parseInt(e.target.value);
-                    if (page >= 1 && page <= pagination.totalPages) {
-                      handlePageChange(page);
-                    }
-                  }}
-                  className="flex flex-col items-start bg-white w-[51px] py-[5px] pl-2 mr-2 rounded border border-solid border-[#F59E0B] text-sm"
-                />
-                <span 
-                  onClick={() => handlePageChange(pagination.page)}
-                  className="text-[#F59E0B] text-sm font-bold cursor-pointer hover:underline whitespace-nowrap"
-                >
-                  Go
-                </span>
-              </div>
-            </div>
-          )}
+      <div className="dd-panel">
+        <div className="dd-panel-header"><div><h3>Workspace activity trail</h3><p>{data?.organization || 'Current organisation'} · last {days} days</p></div>{stats.high_risk > 0 && <span className="dd-count-badge"><ShieldAlert size={13} /> {stats.high_risk} high risk</span>}</div>
+        <div className="dd-inline-form dd-audit-filters">
+          <label className="dd-search-control"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search actor, action, resource or description" aria-label="Search audit log" /></label>
+          <select className="dd-select-control" value={eventType} onChange={(event) => setEventType(event.target.value)} aria-label="Filter event type"><option value="">All event types</option><option value="activity">Workspace activity</option><option value="audit">Data changes</option><option value="security">Security</option></select>
+          <select className="dd-select-control" value={days} onChange={(event) => setDays(event.target.value)} aria-label="Audit date range"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="180">Last 180 days</option><option value="365">Last year</option></select>
         </div>
-              </div>
 
-      {/* Detail Modal */}
-      {showDetailModal && selectedLog && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setShowDetailModal(false)}></div>
-          <div className="flex min-h-full items-center justify-center p-4">
-            <div className="relative bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Audit Log Details</h3>
-                  <button
-                    onClick={() => setShowDetailModal(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">User</label>
-                    <p className="text-sm text-gray-900">{selectedLog.userName || 'Unknown'}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Table</label>
-                    <p className="text-sm text-gray-900">{getTableLabel(selectedLog.table_name)}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Record ID</label>
-                    <p className="text-sm text-gray-900">{selectedLog.record_id || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
-                    <span className={`inline-block text-xs px-2 py-1 rounded ${getActionBadgeClass(selectedLog.action).bg} ${getActionBadgeClass(selectedLog.action).text}`}>
-                      {getActionBadgeClass(selectedLog.action).label}
-                    </span>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Field Name</label>
-                    <p className="text-sm text-gray-900">{selectedLog.field_name || 'N/A'}</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Old Value</label>
-                      <textarea
-                        readOnly
-                        value={selectedLog.old_value || 'N/A'}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50"
-                        rows={4}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">New Value</label>
-                      <textarea
-                        readOnly
-                        value={selectedLog.new_value || 'N/A'}
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-50"
-                        rows={4}
-                      />
-                    </div>
-                </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">IP Address</label>
-                    <p className="text-sm text-gray-900">{selectedLog.ip_address || 'N/A'}</p>
-              </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Timestamp</label>
-                    <p className="text-sm text-gray-900">{formatDate(selectedLog.created_at)}</p>
-                  </div>
-                  {selectedLog.user_agent && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">User Agent</label>
-                      <p className="text-sm text-gray-900 break-words">{selectedLog.user_agent}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        {loading ? <div className="dd-loading-state"><Loader2 size={18} className="dd-spin" /> Loading audit activity</div> : !events.length ? <div className="dd-empty-state"><FileClock size={25} /><strong>No activity found</strong><p>No workspace events match the selected period and filters.</p></div> : <div className="dd-table-wrap dd-audit-table"><table className="dd-data-table"><thead><tr><th>Date and time</th><th>Actor</th><th>Type</th><th>Action</th><th>Resource</th><th>IP address</th><th aria-label="Details" /></tr></thead><tbody>{events.map((event) => <tr key={event.id}><td className="dd-audit-date">{formatDateTime(event.created_at)}</td><td><strong>{event.user_name}</strong><small>{event.user_email || 'Email unavailable'}</small></td><td><span className={`dd-event-source is-${event.source}`}>{event.category}</span></td><td><strong>{event.action}</strong><small>{event.description}</small></td><td><strong>{event.resource || 'Workspace'}</strong><small>{event.record_id ? `Record ${event.record_id}` : 'No record identifier'}</small></td><td>{event.ip_address || 'Not recorded'}</td><td><button type="button" className="dd-icon-button" onClick={() => setSelected(event)} aria-label={`View ${event.action} details`}><Eye size={14} /></button></td></tr>)}</tbody></table></div>}
+
+        <div className="dd-audit-pagination"><span>{rangeLabel}</span><div><button type="button" className="dd-icon-button" aria-label="Previous page" disabled={page <= 1 || loading} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={15} /></button><span>Page {data?.page || page} of {data?.total_pages || 1}</span><button type="button" className="dd-icon-button" aria-label="Next page" disabled={page >= (data?.total_pages || 1) || loading} onClick={() => setPage((current) => current + 1)}><ChevronRight size={15} /></button></div></div>
+      </div>
+
+      <div className="dd-inline-alert is-info"><ShieldAlert size={14} /><span>The audit view is scoped to members of the signed-in organisation. Export includes only the currently displayed page and filters.</span></div>
+
+      {selected && <div className="dd-modal-backdrop" role="presentation"><div className="dd-modal dd-audit-modal" role="dialog" aria-modal="true" aria-labelledby="audit-detail-title"><header><div><h3 id="audit-detail-title">Audit event details</h3><p>{selected.id}</p></div><button type="button" onClick={() => setSelected(null)} aria-label="Close"><X size={17} /></button></header><div className="dd-modal-body"><dl className="dd-audit-details"><div><dt>Date and time</dt><dd>{formatDateTime(selected.created_at)}</dd></div><div><dt>Actor</dt><dd>{selected.user_name}<small>{selected.user_email}</small></dd></div><div><dt>Source</dt><dd>{selected.category}</dd></div><div><dt>Action</dt><dd>{selected.action}</dd></div><div><dt>Resource</dt><dd>{selected.resource || 'Workspace'}{selected.record_id && <small>Record {selected.record_id}</small>}</dd></div><div><dt>IP address</dt><dd>{selected.ip_address || 'Not recorded'}</dd></div><div className="is-wide"><dt>Description</dt><dd>{selected.description || 'No description recorded'}</dd></div>{selected.old_value != null && <div className="is-wide"><dt>Previous value</dt><dd><pre>{valueText(selected.old_value)}</pre></dd></div>}{selected.new_value != null && <div className="is-wide"><dt>New value</dt><dd><pre>{valueText(selected.new_value)}</pre></dd></div>}<div className="is-wide"><dt>User agent</dt><dd>{selected.user_agent || 'Not recorded'}</dd></div></dl></div></div></div>}
+    </section>
   );
 };
 

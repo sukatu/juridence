@@ -20,6 +20,14 @@ const GazetteEntry = ({ gazette, showActions = false, onEdit, onDelete, onView }
   const [isExpanded, setIsExpanded] = useState(false);
 
   const gazetteTypes = {
+    CHANGE_OF_NAME: { label: 'Change of Name', icon: User, color: 'blue' },
+    CHANGE_OF_DATE_OF_BIRTH: { label: 'Correction of Date of Birth', icon: Calendar, color: 'green' },
+    CHANGE_OF_PLACE_OF_BIRTH: { label: 'Correction of Place of Birth', icon: MapPin, color: 'orange' },
+    APPOINTMENT_OF_MARRIAGE_OFFICERS: { label: 'Marriage Officer Appointment', icon: User, color: 'purple' },
+    COMPANY_WINDING_UP: { label: 'Winding Up of a Company', icon: Building, color: 'red' },
+    COMPANY_DISSOLUTION: { label: 'Dissolution of Companies', icon: Building, color: 'red' },
+    COMPANY_STRIKE_OFF_INTENTION: { label: 'Intention to Strike Off', icon: Building, color: 'orange' },
+    EXTERNAL_COMPANY_CESSATION: { label: 'Cessation of External Company', icon: Building, color: 'gray' },
     LEGAL_NOTICE: { label: 'Legal Notice', icon: FileText, color: 'blue' },
     BUSINESS_NOTICE: { label: 'Business Notice', icon: Building, color: 'green' },
     PROPERTY_NOTICE: { label: 'Property Notice', icon: MapPin, color: 'orange' },

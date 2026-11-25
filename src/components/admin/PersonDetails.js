@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Edit, Save, X, CheckCircle, Calendar, Plus, Trash2, ExternalLink, Building2, User, Users, FileText, Database, Bookmark } from 'lucide-react';
 import CaseDetails from './CaseDetails';
-import AdminHeader from './AdminHeader';
 import EmploymentFormModal from './EmploymentFormModal';
 import RelationshipFormModal from './RelationshipFormModal';
 import GazetteFormModal from './GazetteFormModal';
@@ -1011,9 +1010,6 @@ const PersonDetails = ({ person, onBack, userInfo, onNavigate, onLogout, onViewR
         </div>
       )}
       
-      {/* Header with Search and User */}
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
-
       {/* Main Content */}
       <div className="px-6">
         <div className="flex flex-col bg-white py-4 px-4 rounded-lg gap-6">

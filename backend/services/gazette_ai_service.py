@@ -55,7 +55,7 @@ IMPORTANT: Searches can include gazette_entries table, correction_of_place_of_bi
 
 Extract search parameters from the user's query. Return a JSON object with the following fields:
 - name: name to search for (if mentioned) - searches person_name in correction tables and officer_name in marriage_officers
-- gazette_type: type of record (CHANGE_OF_NAME, CHANGE_OF_PLACE_OF_BIRTH, CHANGE_OF_DATE_OF_BIRTH, APPOINTMENT_OF_MARRIAGE_OFFICERS, DEATH_NOTICE, etc.) if mentioned
+- gazette_type: type of record (CHANGE_OF_NAME, CHANGE_OF_PLACE_OF_BIRTH, CHANGE_OF_DATE_OF_BIRTH, APPOINTMENT_OF_MARRIAGE_OFFICERS, COMPANY_WINDING_UP, COMPANY_DISSOLUTION, COMPANY_STRIKE_OFF_INTENTION, EXTERNAL_COMPANY_CESSATION, DEATH_NOTICE, etc.) if mentioned
 - search_type: which table(s) to search - can be "gazette", "correction_of_place_of_birth", "correction_of_date_of_birth", "marriage_officers", or "all" (default: "all")
 - date_from: start date if date range is mentioned (format: YYYY-MM-DD)
 - date_to: end date if date range is mentioned (format: YYYY-MM-DD)
@@ -67,6 +67,10 @@ Recognize these record types:
 - "correction of place of birth" or "place of birth correction" or "pob correction" -> search correction_of_place_of_birth table
 - "correction of date of birth" or "date of birth correction" or "dob correction" -> search correction_of_date_of_birth table
 - "marriage officer" or "marriage officers" -> search marriage_officers table
+- "winding up" or "company winding up" -> COMPANY_WINDING_UP (search gazette_entries)
+- "dissolution" or "dissolved company" -> COMPANY_DISSOLUTION (search gazette_entries)
+- "strike off" or "intention to strike off" -> COMPANY_STRIKE_OFF_INTENTION (search gazette_entries)
+- "cessation of business" or "external company cessation" -> EXTERNAL_COMPANY_CESSATION (search gazette_entries)
 - "place of birth" or "birth place" or "pob" -> CHANGE_OF_PLACE_OF_BIRTH (gazette) or correction_of_place_of_birth table
 - "date of birth" or "dob" -> CHANGE_OF_DATE_OF_BIRTH (gazette) or correction_of_date_of_birth table
 - "death" or "obituary" -> DEATH_NOTICE
@@ -708,6 +712,10 @@ The database contains various types of records:
 - CHANGE_OF_DATE_OF_BIRTH: Records of date of birth corrections with old and new dates (from gazette entries)
 - CHANGE_OF_PLACE_OF_BIRTH: Records of place of birth corrections with old and new places of birth (from gazette entries)
 - APPOINTMENT_OF_MARRIAGE_OFFICERS: Records of marriage officer appointments (from gazette entries)
+- COMPANY_WINDING_UP: Notices that a company is being wound up
+- COMPANY_DISSOLUTION: Notices of companies dissolved from the register
+- COMPANY_STRIKE_OFF_INTENTION: Notices of intention to strike companies off the register
+- EXTERNAL_COMPANY_CESSATION: Notices that an external company has ceased business
 - DEATH_NOTICE: Death notices and obituaries
 - LEGAL_NOTICE: Various legal notices
 - BUSINESS_NOTICE: Business-related notices
@@ -745,6 +753,7 @@ When you find search results, summarize them clearly and helpfully. Include:
 - For CHANGE_OF_PLACE_OF_BIRTH entries from gazette_entries, mention the old and new places of birth
 - For CHANGE_OF_NAME entries, mention the old name, new name, and any aliases
 - For CHANGE_OF_DATE_OF_BIRTH entries from gazette_entries, mention the old and new dates
+- For company notice entries, mention the company name, registration number when available, notice category, effective date, and Gazette reference
 
 If no results are found, suggest alternative search strategies:
 - Try searching with just the first name or last name separately

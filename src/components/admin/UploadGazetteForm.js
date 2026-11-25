@@ -93,6 +93,10 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
     'Date of birth correction',
     'Place of birth correction',
     'Marriage officer appointment',
+    'Notice of Winding Up of a Company',
+    'Notice of Dissolution of Companies from the Register',
+    'Notice of Intention to Strike Off Companies from the Register',
+    'Notice of Cessation of Business of External Company',
     'Company name change',
     'Address change'
   ];
@@ -104,6 +108,10 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
       'Date of birth correction': 'CHANGE_OF_DATE_OF_BIRTH',
       'Place of birth correction': 'CHANGE_OF_PLACE_OF_BIRTH',
       'Marriage officer appointment': 'APPOINTMENT_OF_MARRIAGE_OFFICERS',
+      'Notice of Winding Up of a Company': 'COMPANY_WINDING_UP',
+      'Notice of Dissolution of Companies from the Register': 'COMPANY_DISSOLUTION',
+      'Notice of Intention to Strike Off Companies from the Register': 'COMPANY_STRIKE_OFF_INTENTION',
+      'Notice of Cessation of Business of External Company': 'EXTERNAL_COMPANY_CESSATION',
       'Company name change': 'LEGAL_NOTICE',
       'Address change': 'PERSONAL_NOTICE'
     };
@@ -160,7 +168,10 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
       'Effective Date of Change (YYYY-MM-DD)',
       'Remarks',
       'Description',
-      'Reference Number'
+      'Reference Number',
+      'Company Name',
+      'Registration Number',
+      'Registered Office'
     ];
 
     // Create sample data rows for different notice types
@@ -263,6 +274,10 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
       'Date of birth correction': 'CHANGE_OF_DATE_OF_BIRTH',
       'Place of birth correction': 'CHANGE_OF_PLACE_OF_BIRTH',
       'Marriage officer appointment': 'APPOINTMENT_OF_MARRIAGE_OFFICERS',
+      'Notice of Winding Up of a Company': 'COMPANY_WINDING_UP',
+      'Notice of Dissolution of Companies from the Register': 'COMPANY_DISSOLUTION',
+      'Notice of Intention to Strike Off Companies from the Register': 'COMPANY_STRIKE_OFF_INTENTION',
+      'Notice of Cessation of Business of External Company': 'EXTERNAL_COMPANY_CESSATION',
       'Company name change': 'LEGAL_NOTICE',
       'Address change': 'PERSONAL_NOTICE'
     };
@@ -339,7 +354,9 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
       gazetteDate: row['Gazette Date (YYYY-MM-DD)'] || row['Gazette Date'] || '',
       itemNumber: row['Item Number'] || '',
       pageNumber: row['Page Number'] || '',
-      currentName: row['Current/New Name *'] || row['Current/New Name'] || '',
+      currentName: row['Company Name'] || row['Name of Company'] || row['Name of External Company'] || row['Current/New Name *'] || row['Current/New Name'] || '',
+      registrationNumber: row['Registration Number'] || row['Company Registration Number'] || row['Company Number'] || '',
+      registeredOffice: row['Registered Office'] || row['Company Address'] || row['Address'] || '',
       oldName: row['Old Name'] || '',
       aliasNames: (row['Alias Names (separate with semicolon)'] || row['Alias Names'] || '')
         .split(';')
@@ -527,6 +544,32 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
             gazetteData.gazette_number = entry.gazetteNumber;
             gazetteData.gazette_date = entry.gazetteDate ? new Date(entry.gazetteDate + 'T00:00:00').toISOString() : null;
             gazetteData.gazette_page = entry.pageNumber ? parseInt(entry.pageNumber, 10) : null;
+          } else if ([
+            'COMPANY_WINDING_UP',
+            'COMPANY_DISSOLUTION',
+            'COMPANY_STRIKE_OFF_INTENTION',
+            'EXTERNAL_COMPANY_CESSATION'
+          ].includes(entry.gazetteType)) {
+            const noticeLabel = entry.noticeType;
+            gazetteData.title = `${noticeLabel} - ${entry.currentName}`;
+            gazetteData.content = entry.description || `${noticeLabel}\nCompany: ${entry.currentName}${entry.registrationNumber ? `\nRegistration number: ${entry.registrationNumber}` : ''}`;
+            gazetteData.current_name = entry.currentName;
+            gazetteData.name_value = entry.currentName;
+            gazetteData.name_role = 'master';
+            gazetteData.address = entry.registeredOffice || entry.address || null;
+            gazetteData.remarks = entry.remarks || null;
+            gazetteData.item_number = entry.itemNumber;
+            gazetteData.gazette_number = entry.gazetteNumber;
+            gazetteData.gazette_date = entry.gazetteDate ? new Date(entry.gazetteDate + 'T00:00:00').toISOString() : null;
+            gazetteData.gazette_page = entry.pageNumber ? parseInt(entry.pageNumber, 10) : null;
+            gazetteData.reference_number = entry.referenceNumber || entry.registrationNumber || null;
+            gazetteData.source = 'Office of the Registrar of Companies';
+            gazetteData.gazette_metadata = {
+              company_name: entry.currentName,
+              registration_number: entry.registrationNumber || null,
+              registered_office: entry.registeredOffice || null,
+              notice_category: entry.gazetteType
+            };
           }
 
           if (entry.description) gazetteData.description = entry.description;
@@ -594,7 +637,10 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
       'Effective Date of Change (YYYY-MM-DD)',
       'Remarks',
       'Description',
-      'Reference Number'
+      'Reference Number',
+      'Company Name',
+      'Registration Number',
+      'Registered Office'
     ];
 
     // Create sample data rows
@@ -872,6 +918,10 @@ const UploadGazetteForm = ({ onBack, userInfo, onNavigate, onLogout, editMode = 
         'CHANGE_OF_DATE_OF_BIRTH': 'Date of birth correction',
         'CHANGE_OF_PLACE_OF_BIRTH': 'Place of birth correction',
         'APPOINTMENT_OF_MARRIAGE_OFFICERS': 'Marriage officer appointment',
+        'COMPANY_WINDING_UP': 'Notice of Winding Up of a Company',
+        'COMPANY_DISSOLUTION': 'Notice of Dissolution of Companies from the Register',
+        'COMPANY_STRIKE_OFF_INTENTION': 'Notice of Intention to Strike Off Companies from the Register',
+        'EXTERNAL_COMPANY_CESSATION': 'Notice of Cessation of Business of External Company',
         'LEGAL_NOTICE': 'Company name change',
         'PERSONAL_NOTICE': 'Address change'
       };

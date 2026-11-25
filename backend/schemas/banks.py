@@ -1,10 +1,11 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime
+from datetime import date, datetime
 import json
 
 class BanksBase(BaseModel):
     name: str = Field(..., max_length=255)
+    former_name: Optional[str] = Field(None, max_length=255)
     short_name: Optional[str] = Field(None, max_length=100)
     logo_url: Optional[str] = Field(None, max_length=500)
     website: Optional[str] = Field(None, max_length=255)
@@ -18,6 +19,7 @@ class BanksBase(BaseModel):
     bank_code: Optional[str] = Field(None, max_length=20)
     swift_code: Optional[str] = Field(None, max_length=20)
     license_number: Optional[str] = Field(None, max_length=100)
+    date_of_incorporation: Optional[date] = None
     established_date: Optional[datetime] = None
     bank_type: Optional[str] = Field(None, max_length=50)
     ownership_type: Optional[str] = Field(None, max_length=50)
@@ -53,6 +55,7 @@ class BanksCreate(BanksBase):
 
 class BanksUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
+    former_name: Optional[str] = Field(None, max_length=255)
     short_name: Optional[str] = Field(None, max_length=100)
     logo_url: Optional[str] = Field(None, max_length=500)
     website: Optional[str] = Field(None, max_length=255)
@@ -66,6 +69,7 @@ class BanksUpdate(BaseModel):
     bank_code: Optional[str] = Field(None, max_length=20)
     swift_code: Optional[str] = Field(None, max_length=20)
     license_number: Optional[str] = Field(None, max_length=100)
+    date_of_incorporation: Optional[date] = None
     established_date: Optional[datetime] = None
     bank_type: Optional[str] = Field(None, max_length=50)
     ownership_type: Optional[str] = Field(None, max_length=50)

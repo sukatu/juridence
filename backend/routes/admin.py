@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, and_, or_
+from sqlalchemy import func, desc, asc, nullslast, and_, or_
 from typing import List, Optional
 from datetime import datetime, timedelta
 import json
@@ -127,10 +127,12 @@ async def get_users(
         
         # Apply filters
         if search:
+            search_term = f"%{search.strip()}%"
             query = query.filter(
-                User.email.contains(search) | 
-                User.first_name.contains(search) | 
-                User.last_name.contains(search)
+                User.email.ilike(search_term) |
+                User.first_name.ilike(search_term) |
+                User.last_name.ilike(search_term) |
+                User.organization.ilike(search_term)
             )
         
         if role:
@@ -256,9 +258,14 @@ async def get_users_stats(db: Session = Depends(get_db)):
     """Get user statistics for admin dashboard"""
     try:
         total_users = db.query(User).count()
-        active_users = db.query(User).filter(User.is_active == True).count()
-        admin_users = db.query(User).filter(User.role == "admin").count()
-        regular_users = db.query(User).filter(User.role == "user").count()
+        active_users = db.query(User).filter(User.status == UserStatus.ACTIVE).count()
+        admin_users = db.query(User).filter(User.role == UserRole.ADMIN).count()
+        regular_users = db.query(User).filter(User.role == UserRole.USER).count()
+        premium_users = db.query(User).filter(User.role == UserRole.PREMIUM).count()
+        pending_users = db.query(User).filter(User.status == UserStatus.PENDING).count()
+        inactive_users = db.query(User).filter(User.status == UserStatus.INACTIVE).count()
+        suspended_users = db.query(User).filter(User.status == UserStatus.SUSPENDED).count()
+        never_signed_in = db.query(User).filter(User.last_login == None).count()
         
         # Recent registrations (last 30 days)
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
@@ -269,6 +276,11 @@ async def get_users_stats(db: Session = Depends(get_db)):
             "active_users": active_users,
             "admin_users": admin_users,
             "regular_users": regular_users,
+            "premium_users": premium_users,
+            "pending_users": pending_users,
+            "inactive_users": inactive_users,
+            "suspended_users": suspended_users,
+            "never_signed_in": never_signed_in,
             "recent_registrations": recent_registrations
         }
     except Exception as e:
@@ -506,10 +518,12 @@ async def get_api_keys(
     user_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(10, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get API keys with optional user filtering"""
     try:
+        check_admin_privileges(current_user.id, db)
         query = db.query(ApiKey)
         
         if user_id:
@@ -534,9 +548,14 @@ async def get_api_keys(
         raise HTTPException(status_code=500, detail=f"Error fetching API keys: {str(e)}")
 
 @router.post("/api-keys", response_model=ApiKeyResponse)
-async def create_api_key(api_key_data: ApiKeyCreateRequest, db: Session = Depends(get_db)):
+async def create_api_key(
+    api_key_data: ApiKeyCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Create a new API key for a user"""
     try:
+        check_admin_privileges(current_user.id, db)
         # Check if user exists
         user = db.query(User).filter(User.id == api_key_data.user_id).first()
         if not user:
@@ -557,7 +576,7 @@ async def create_api_key(api_key_data: ApiKeyCreateRequest, db: Session = Depend
             key_hash=key_secret,  # In production, hash this
             is_active=True,
             created_at=datetime.now(),
-            expires_at=datetime.now() + timedelta(days=365) if api_key_data.expires_in_days else None
+            expires_at=datetime.now() + timedelta(days=api_key_data.expires_in_days) if api_key_data.expires_in_days else None
         )
         
         db.add(new_api_key)
@@ -581,9 +600,14 @@ async def create_api_key(api_key_data: ApiKeyCreateRequest, db: Session = Depend
         raise HTTPException(status_code=500, detail=f"Error creating API key: {str(e)}")
 
 @router.delete("/api-keys/{key_id}")
-async def delete_api_key(key_id: int, db: Session = Depends(get_db)):
+async def delete_api_key(
+    key_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Delete an API key"""
     try:
+        check_admin_privileges(current_user.id, db)
         api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if not api_key:
             raise HTTPException(status_code=404, detail="API key not found")
@@ -606,6 +630,15 @@ async def get_cases(
     search: Optional[str] = None,
     court_type: Optional[str] = None,
     status: Optional[str] = None,
+    year: Optional[str] = None,
+    region: Optional[str] = None,
+    case_type: Optional[str] = None,
+    area_of_law: Optional[str] = None,
+    ai_outcome: Optional[str] = None,
+    financial_impact: Optional[str] = None,
+    has_ai: Optional[bool] = None,
+    sort_by: str = Query("date"),
+    sort_order: str = Query("desc"),
     db: Session = Depends(get_db)
 ):
     """Get paginated list of cases with filtering"""
@@ -615,20 +648,71 @@ async def get_cases(
         # Apply filters
         if search:
             query = query.filter(
-                ReportedCases.title.contains(search) |
-                ReportedCases.protagonist.contains(search) |
-                ReportedCases.antagonist.contains(search)
+                ReportedCases.title.ilike(f"%{search}%") |
+                ReportedCases.suit_reference_number.ilike(f"%{search}%") |
+                ReportedCases.protagonist.ilike(f"%{search}%") |
+                ReportedCases.antagonist.ilike(f"%{search}%") |
+                ReportedCases.presiding_judge.ilike(f"%{search}%") |
+                ReportedCases.citation.ilike(f"%{search}%") |
+                ReportedCases.dl_citation_no.ilike(f"%{search}%")
             )
         
         if court_type:
-            query = query.filter(ReportedCases.court_type == court_type)
+            court_types = [value.strip() for value in court_type.split(",") if value.strip()]
+            query = query.filter(ReportedCases.court_type.in_(court_types))
         
         if status:
-            query = query.filter(ReportedCases.status == status)
+            status_values = {
+                "active": ["active", "1"],
+                "closed": ["closed", "0"],
+                "pending": ["pending", "2"],
+                "dismissed": ["dismissed", "3"],
+            }.get(status.lower(), [status])
+            query = query.filter(ReportedCases.status.in_(status_values))
+
+        if year:
+            query = query.filter(ReportedCases.year == year)
+
+        if region:
+            query = query.filter(ReportedCases.region == region)
+
+        if case_type:
+            query = query.filter(func.lower(ReportedCases.type) == case_type.lower())
+
+        if area_of_law:
+            query = query.filter(ReportedCases.area_of_law.ilike(f"%{area_of_law}%"))
+
+        if ai_outcome:
+            query = query.filter(ReportedCases.ai_case_outcome == ai_outcome)
+
+        if financial_impact:
+            query = query.filter(ReportedCases.ai_financial_impact.ilike(f"{financial_impact}%"))
+
+        if has_ai is True:
+            query = query.filter(
+                ReportedCases.ai_detailed_outcome.isnot(None),
+                ReportedCases.ai_detailed_outcome != "",
+            )
+        elif has_ai is False:
+            query = query.filter(or_(
+                ReportedCases.ai_detailed_outcome.is_(None),
+                ReportedCases.ai_detailed_outcome == "",
+            ))
         
         # Get total count
         total = query.count()
         
+        sort_fields = {
+            "date": ReportedCases.date,
+            "title": ReportedCases.title,
+            "year": ReportedCases.year,
+            "court_type": ReportedCases.court_type,
+            "updated_at": ReportedCases.updated_at,
+        }
+        sort_field = sort_fields.get(sort_by, ReportedCases.date)
+        order_expression = asc(sort_field) if sort_order.lower() == "asc" else desc(sort_field)
+        query = query.order_by(nullslast(order_expression), ReportedCases.id.desc())
+
         # Apply pagination
         offset = (page - 1) * limit
         cases = query.offset(offset).limit(limit).all()
@@ -636,10 +720,10 @@ async def get_cases(
         # Convert cases to proper format
         formatted_cases = []
         status_mapping = {
-            1: 'active',
-            0: 'closed',
-            2: 'pending',
-            3: 'dismissed'
+            1: 'active', '1': 'active', 'active': 'active',
+            0: 'closed', '0': 'closed', 'closed': 'closed',
+            2: 'pending', '2': 'pending', 'pending': 'pending',
+            3: 'dismissed', '3': 'dismissed', 'dismissed': 'dismissed',
         }
         
         for case in cases:
@@ -653,7 +737,18 @@ async def get_cases(
                 "antagonist": case.antagonist,
                 "court_type": case.court_type,
                 "court_division": case.court_division,
-                "status": status_mapping.get(case.status) if case.status is not None else None,
+                "status": status_mapping.get(case.status, case.status) if case.status is not None else None,
+                "year": int(case.year) if case.year and str(case.year).isdigit() else None,
+                "type": case.type,
+                "region": case.region,
+                "town": case.town,
+                "citation": case.citation,
+                "dl_citation_no": case.dl_citation_no,
+                "area_of_law": case.area_of_law,
+                "published": case.published,
+                "ai_case_outcome": case.ai_case_outcome,
+                "ai_financial_impact": case.ai_financial_impact,
+                "ai_summary_generated_at": case.ai_summary_generated_at.isoformat() if case.ai_summary_generated_at else None,
                 "created_at": case.created_at.isoformat() if case.created_at else None,
                 "updated_at": case.updated_at.isoformat() if case.updated_at else None
             }
@@ -673,68 +768,96 @@ async def get_cases(
 async def get_case_stats(db: Session = Depends(get_db)):
     """Get comprehensive case statistics for admin dashboard"""
     try:
-        # Basic counts
         total_cases = db.query(ReportedCases).count()
-        
-        # Status distribution
         status_mapping = {
-            'active': 'active',
-            'closed': 'closed',
-            'pending': 'pending',
-            'dismissed': 'dismissed'
+            '1': 'active', 'active': 'active',
+            '0': 'closed', 'closed': 'closed',
+            '2': 'pending', 'pending': 'pending',
+            '3': 'dismissed', 'dismissed': 'dismissed',
         }
-        
-        active_cases = db.query(ReportedCases).filter(ReportedCases.status == 'active').count()
-        closed_cases = db.query(ReportedCases).filter(ReportedCases.status == 'closed').count()
-        pending_cases = db.query(ReportedCases).filter(ReportedCases.status == 'pending').count()
-        dismissed_cases = db.query(ReportedCases).filter(ReportedCases.status == 'dismissed').count()
-        
-        # Recent cases (last 30 days)
-        from datetime import datetime, timedelta
+
+        status_dist = {}
+        status_counts = db.query(
+            ReportedCases.status,
+            func.count(ReportedCases.id),
+        ).group_by(ReportedCases.status).all()
+        for status, count in status_counts:
+            label = status_mapping.get(str(status).lower(), 'not_recorded' if status is None else str(status).lower())
+            status_dist[label] = status_dist.get(label, 0) + count
+
         thirty_days_ago = datetime.now() - timedelta(days=30)
         recent_cases = db.query(ReportedCases).filter(ReportedCases.created_at >= thirty_days_ago).count()
-        
-        # Court type distribution
-        court_type_dist = {}
-        court_types = db.query(ReportedCases.court_type, func.count(ReportedCases.id)).group_by(ReportedCases.court_type).all()
-        for court_type, count in court_types:
-            if court_type:
-                court_type_dist[court_type] = count
-        
-        # Status distribution
-        status_dist = {}
-        status_counts = db.query(ReportedCases.status, func.count(ReportedCases.id)).group_by(ReportedCases.status).all()
-        for status, count in status_counts:
-            if status is not None:
-                status_name = status_mapping.get(status, status or 'unknown')
-                status_dist[status_name] = count
-        
-        # Year distribution (last 10 years)
-        year_dist = {}
-        current_year = datetime.now().year
-        for year in range(current_year - 9, current_year + 1):
-            year_count = db.query(ReportedCases).filter(ReportedCases.year == str(year)).count()
-            if year_count > 0:
-                year_dist[str(year)] = year_count
-        
-        # Region distribution
-        region_dist = {}
-        regions = db.query(ReportedCases.region, func.count(ReportedCases.id)).group_by(ReportedCases.region).all()
-        for region, count in regions:
-            if region:
-                region_dist[region] = count
-        
+
+        def distribution(column, limit=None, descending=False):
+            result = db.query(column, func.count(ReportedCases.id).label('count')) \
+                .filter(column.isnot(None), column != '') \
+                .group_by(column)
+            if descending:
+                result = result.order_by(desc(column))
+            else:
+                result = result.order_by(desc('count'))
+            if limit:
+                result = result.limit(limit)
+            return {str(label): count for label, count in result.all()}
+
+        court_type_dist = distribution(ReportedCases.court_type)
+        source_type_dist = distribution(ReportedCases.type)
+        year_dist = distribution(ReportedCases.year, descending=True)
+        region_dist = distribution(ReportedCases.region, limit=20)
+        area_of_law_dist = distribution(ReportedCases.area_of_law, limit=20)
+        outcome_dist = distribution(ReportedCases.ai_case_outcome)
+
+        financial_impact_dist = {}
+        financial_counts = db.query(
+            ReportedCases.ai_financial_impact,
+            func.count(ReportedCases.id),
+        ).filter(
+            ReportedCases.ai_financial_impact.isnot(None),
+            ReportedCases.ai_financial_impact != '',
+        ).group_by(ReportedCases.ai_financial_impact).all()
+        for value, count in financial_counts:
+            label = str(value).split(' - ', 1)[0].strip().upper()
+            if label not in {'HIGH', 'MODERATE', 'LOW', 'NONE', 'UNRESOLVED'}:
+                label = 'OTHER'
+            financial_impact_dist[label] = financial_impact_dist.get(label, 0) + count
+
+        reported_cases = db.query(ReportedCases).filter(func.lower(ReportedCases.type) == 'reported').count()
+        ai_assessed_cases = db.query(ReportedCases).filter(
+            ReportedCases.ai_detailed_outcome.isnot(None),
+            ReportedCases.ai_detailed_outcome != '',
+        ).count()
+        high_financial_impact_cases = db.query(ReportedCases).filter(
+            ReportedCases.ai_financial_impact.ilike('HIGH%')
+        ).count()
+        profiles_with_summary = db.query(ReportedCases).filter(
+            ReportedCases.case_summary.isnot(None),
+            ReportedCases.case_summary != '',
+        ).count()
+        profiles_with_source_file = db.query(ReportedCases).filter(
+            ReportedCases.file_url.isnot(None),
+            ReportedCases.file_url != '',
+        ).count()
+
         return {
             "totalCases": total_cases,
-            "activeCases": active_cases,
-            "closedCases": closed_cases,
-            "pendingCases": pending_cases,
-            "dismissedCases": dismissed_cases,
+            "activeCases": status_dist.get('active', 0),
+            "closedCases": status_dist.get('closed', 0),
+            "pendingCases": status_dist.get('pending', 0),
+            "dismissedCases": status_dist.get('dismissed', 0),
             "recentCases": recent_cases,
+            "reportedCases": reported_cases,
+            "aiAssessedCases": ai_assessed_cases,
+            "highFinancialImpactCases": high_financial_impact_cases,
+            "profilesWithSummary": profiles_with_summary,
+            "profilesWithSourceFile": profiles_with_source_file,
             "courtTypeDistribution": court_type_dist,
             "statusDistribution": status_dist,
             "yearDistribution": year_dist,
-            "regionDistribution": region_dist
+            "regionDistribution": region_dist,
+            "sourceTypeDistribution": source_type_dist,
+            "areaOfLawDistribution": area_of_law_dist,
+            "outcomeDistribution": outcome_dist,
+            "financialImpactDistribution": financial_impact_dist,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching case stats: {str(e)}")
@@ -749,16 +872,16 @@ async def get_case(case_id: int, db: Session = Depends(get_db)):
         
         # Convert status integer to string for response
         status_mapping = {
-            1: 'active',
-            0: 'closed',
-            2: 'pending',
-            3: 'dismissed'
+            1: 'active', '1': 'active', 'active': 'active',
+            0: 'closed', '0': 'closed', 'closed': 'closed',
+            2: 'pending', '2': 'pending', 'pending': 'pending',
+            3: 'dismissed', '3': 'dismissed', 'dismissed': 'dismissed',
         }
         
         # Create a dict with converted status
         case_dict = case.__dict__.copy()
         if case_dict.get('status') is not None:
-            case_dict['status'] = status_mapping.get(case_dict['status'])
+            case_dict['status'] = status_mapping.get(case_dict['status'], case_dict['status'])
         
         # Normalize fields that can violate response model typing
         if case_dict.get("c_t") is not None:
@@ -793,15 +916,9 @@ async def create_case(case_data: CaseCreateRequest, db: Session = Depends(get_db
         # Extract person_links if present (not part of ReportedCases model)
         person_links = case_dict.pop('person_links', None)
         
-        # Convert status string to integer if needed
+        # Store a consistent readable status for new records.
         if case_dict.get('status'):
-            status_mapping = {
-                'active': 1,
-                'closed': 0,
-                'pending': 2,
-                'dismissed': 3
-            }
-            case_dict['status'] = status_mapping.get(case_dict['status'], 1)
+            case_dict['status'] = str(case_dict['status']).strip().lower()
         
         new_case = ReportedCases(**case_dict)
         db.add(new_case)
@@ -836,10 +953,10 @@ async def create_case(case_data: CaseCreateRequest, db: Session = Depends(get_db
         
         # Convert status back to string for response
         status_mapping = {
-            1: 'active',
-            0: 'closed',
-            2: 'pending',
-            3: 'dismissed'
+            1: 'active', '1': 'active', 'active': 'active',
+            0: 'closed', '0': 'closed', 'closed': 'closed',
+            2: 'pending', '2': 'pending', 'pending': 'pending',
+            3: 'dismissed', '3': 'dismissed', 'dismissed': 'dismissed',
         }
         
         case_dict = new_case.__dict__.copy()
@@ -870,15 +987,9 @@ async def update_case(case_id: int, case_data: CaseUpdateRequest, db: Session = 
         # Extract person_links if present (not part of ReportedCases model)
         person_links = update_data.pop('person_links', None)
         
-        # Convert status string to integer if needed
+        # Store a consistent readable status for edited records.
         if 'status' in update_data and update_data['status']:
-            status_mapping = {
-                'active': 1,
-                'closed': 0,
-                'pending': 2,
-                'dismissed': 3
-            }
-            update_data['status'] = status_mapping.get(update_data['status'], 1)
+            update_data['status'] = str(update_data['status']).strip().lower()
         
         for field, value in update_data.items():
             setattr(case, field, value)
@@ -904,15 +1015,15 @@ async def update_case(case_id: int, case_data: CaseUpdateRequest, db: Session = 
         
         # Convert status back to string for response
         status_mapping = {
-            1: 'active',
-            0: 'closed',
-            2: 'pending',
-            3: 'dismissed'
+            1: 'active', '1': 'active', 'active': 'active',
+            0: 'closed', '0': 'closed', 'closed': 'closed',
+            2: 'pending', '2': 'pending', 'pending': 'pending',
+            3: 'dismissed', '3': 'dismissed', 'dismissed': 'dismissed',
         }
         
         case_dict = case.__dict__.copy()
         if case_dict.get('status') is not None:
-            case_dict['status'] = status_mapping.get(case_dict['status'])
+            case_dict['status'] = status_mapping.get(case_dict['status'], case_dict['status'])
         
         return case_dict
     except HTTPException:

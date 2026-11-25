@@ -75,6 +75,10 @@ const GazetteUploadPage = ({ userInfo, onNavigate, onLogout }) => {
       'CHANGE_OF_DATE_OF_BIRTH': 'Date of birth correction',
       'CHANGE_OF_PLACE_OF_BIRTH': 'Place of birth correction',
       'APPOINTMENT_OF_MARRIAGE_OFFICERS': 'Marriage officer appointment',
+      'COMPANY_WINDING_UP': 'Winding up of a company',
+      'COMPANY_DISSOLUTION': 'Dissolution of companies',
+      'COMPANY_STRIKE_OFF_INTENTION': 'Intention to strike off companies',
+      'EXTERNAL_COMPANY_CESSATION': 'Cessation of external company business',
       'LEGAL_NOTICE': 'Legal Notice',
       'BUSINESS_NOTICE': 'Business Notice',
       'PERSONAL_NOTICE': 'Personal Notice',
@@ -100,7 +104,11 @@ const GazetteUploadPage = ({ userInfo, onNavigate, onLogout }) => {
     { id: 'change-name', label: 'Change of name', gazette_type: 'CHANGE_OF_NAME' },
     { id: 'dob-correction', label: 'Date of birth correction', gazette_type: 'CHANGE_OF_DATE_OF_BIRTH' },
     { id: 'pob-correction', label: 'Place of birth correction', gazette_type: 'CHANGE_OF_PLACE_OF_BIRTH' },
-    { id: 'marriage-officer', label: 'Marriage officer appointment', gazette_type: 'APPOINTMENT_OF_MARRIAGE_OFFICERS' }
+    { id: 'marriage-officer', label: 'Marriage officer appointment', gazette_type: 'APPOINTMENT_OF_MARRIAGE_OFFICERS' },
+    { id: 'company-winding-up', label: 'Winding up', gazette_type: 'COMPANY_WINDING_UP' },
+    { id: 'company-dissolution', label: 'Dissolution', gazette_type: 'COMPANY_DISSOLUTION' },
+    { id: 'company-strike-off', label: 'Strike off intention', gazette_type: 'COMPANY_STRIKE_OFF_INTENTION' },
+    { id: 'external-company-cessation', label: 'External company cessation', gazette_type: 'EXTERNAL_COMPANY_CESSATION' }
   ];
 
   // Load gazettes from API

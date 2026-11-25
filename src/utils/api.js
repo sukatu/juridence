@@ -1,310 +1,266 @@
 /**
- * API utility functions for making authenticated requests
+ * Authenticated API client with automatic session renewal.
  */
 
-// Determine API base URL based on environment
 const getApiBaseUrl = () => {
-  // If we're in production (server), use relative URLs
   if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return '/api'; // Use relative URLs for server deployment
+    return '/api';
   }
-  // For local development, use localhost
   return process.env.REACT_APP_API_URL || '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
+const AUTH_KEYS = [
+  'accessToken', 'isAuthenticated', 'userEmail', 'userName', 'userPicture',
+  'userData', 'authProvider', 'userRole', 'userType', 'isAdmin', 'courtType',
+  'entityType', 'entityId',
+];
 
-/**
- * Get the stored access token from localStorage
- */
-const getAuthToken = () => {
-  return localStorage.getItem('accessToken');
+let refreshPromise = null;
+
+const buildUrl = (endpoint) => {
+  const url = endpoint.startsWith('/api/')
+    ? endpoint
+    : `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  return url.replace(/([^:]\/)\/+/g, '$1');
 };
 
-/**
- * Get common headers for API requests
- */
-const getHeaders = (includeAuth = true) => {
-  const headers = {
-    'Content-Type': 'application/json',
-  };
+export const getAuthToken = () => (
+  localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken')
+);
 
-  if (includeAuth) {
-    const token = getAuthToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+const dispatchAuthChange = () => {
+  window.dispatchEvent(new CustomEvent('authStateChanged'));
+};
+
+export const clearAuthSession = ({ notify = true } = {}) => {
+  AUTH_KEYS.forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
+  if (notify) dispatchAuthChange();
+};
+
+const getRoleValue = (user) => user?.role?.value || user?.role;
+
+export const saveAuthSession = (data, { provider = 'email' } = {}) => {
+  const user = data?.user || {};
+  const role = getRoleValue(user) || user.user_type || user.account_type;
+  const userType = user.user_type;
+  const isAdmin = user.is_admin === true
+    || String(getRoleValue(user) || '').toLowerCase() === 'admin'
+    || userType === 'administrator';
+
+  localStorage.setItem('accessToken', data.access_token);
+  localStorage.setItem('isAuthenticated', 'true');
+  localStorage.setItem('userEmail', user.email || '');
+  localStorage.setItem('userName', user.first_name && user.last_name
+    ? `${user.first_name} ${user.last_name}`
+    : (user.email || '').split('@')[0]);
+  localStorage.setItem('userData', JSON.stringify(user));
+  localStorage.setItem('authProvider', provider);
+
+  if (role) localStorage.setItem('userRole', String(role));
+  else localStorage.removeItem('userRole');
+  if (userType) localStorage.setItem('userType', userType);
+  else localStorage.removeItem('userType');
+  if (isAdmin) localStorage.setItem('isAdmin', 'true');
+  else localStorage.removeItem('isAdmin');
+  if (user.court_type) localStorage.setItem('courtType', user.court_type);
+  if (user.entity_type) localStorage.setItem('entityType', user.entity_type);
+  if (user.entity_id != null) localStorage.setItem('entityId', String(user.entity_id));
+  dispatchAuthChange();
+  return user;
+};
+
+const decodeJwtPayload = (token) => {
+  try {
+    const segment = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(window.atob(segment));
+  } catch {
+    return null;
   }
+};
 
+export const hasUsableAccessToken = (minimumLifetimeSeconds = 30) => {
+  const token = getAuthToken();
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  if (!payload?.exp) return false;
+  return payload.exp * 1000 > Date.now() + minimumLifetimeSeconds * 1000;
+};
+
+export const refreshAccessToken = async () => {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(buildUrl('/auth/refresh'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        clearAuthSession();
+        return null;
+      }
+      const data = await response.json();
+      saveAuthSession(data, { provider: localStorage.getItem('authProvider') || 'email' });
+      return data.access_token;
+    } catch (error) {
+      console.error('Session renewal failed:', error);
+      clearAuthSession();
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+};
+
+export const ensureAuthenticated = async (minimumLifetimeSeconds = 30) => {
+  if (hasUsableAccessToken(minimumLifetimeSeconds)) return true;
+  return Boolean(await refreshAccessToken());
+};
+
+export const logoutSession = async () => {
+  try {
+    await fetch(buildUrl('/auth/logout'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+  } catch (error) {
+    console.error('Server logout failed:', error);
+  } finally {
+    clearAuthSession();
+  }
+};
+
+export const getHeaders = (includeAuth = true) => {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = includeAuth ? getAuthToken() : null;
+  if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 };
 
-/**
- * Make an authenticated API request
- */
-export const apiRequest = async (endpoint, options = {}) => {
-  // If endpoint already starts with /api/, don't add API_BASE_URL
-  let url;
-  if (endpoint.startsWith('/api/')) {
-    url = endpoint;
-  } else {
-    // Ensure endpoint doesn't start with / if API_BASE_URL already ends with /
-    url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
-  }
-  // Remove double slashes (except after http:// or https://)
-  url = url.replace(/([^:]\/)\/+/g, '$1');
-  
-  const {
-    method = 'GET',
-    body,
-    includeAuth = true,
-    ...fetchOptions
-  } = options;
+const parseResponse = async (response) => {
+  if (response.headers.get('content-type')?.includes('application/json')) return response.json();
+  return response.text();
+};
 
+export const apiRequest = async (endpoint, options = {}) => {
+  const {
+    method = 'GET', body, includeAuth = true, headers: customHeaders, ...fetchOptions
+  } = options;
   const config = {
     method,
-    headers: getHeaders(includeAuth),
+    credentials: 'include',
+    headers: { ...getHeaders(includeAuth), ...customHeaders },
     ...fetchOptions,
   };
-
-  if (body) {
-    config.body = JSON.stringify(body);
-  }
+  if (body !== undefined && body !== null) config.body = JSON.stringify(body);
 
   try {
-    const response = await fetch(url, config);
-    
-    // Handle redirects (3xx status codes) - fetch follows redirects automatically
-    // but we need to check if the final response is ok
-    if (!response.ok && response.status >= 500) {
-      // Server error - try to get error details
-      const errorText = await response.text();
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch {
-        errorData = { detail: errorText || `Server error: ${response.status}` };
+    let response = await fetch(buildUrl(endpoint), config);
+    if (response.status === 401 && includeAuth) {
+      const renewedToken = await refreshAccessToken();
+      if (renewedToken) {
+        config.headers = { ...config.headers, Authorization: `Bearer ${renewedToken}` };
+        response = await fetch(buildUrl(endpoint), config);
       }
-      throw new Error(errorData.detail || `Server error: ${response.status}`);
     }
-    
-    // Handle different response types
-    if (response.headers.get('content-type')?.includes('application/json')) {
-      const data = await response.json();
-      return { response, data };
-    } else {
-      const text = await response.text();
-      return { response, data: text };
-    }
+    return { response, data: await parseResponse(response) };
   } catch (error) {
     console.error('API request failed:', error);
     throw error;
   }
 };
 
-/**
- * Make a GET request
- */
+const throwApiError = (response, data) => {
+  let message = `Request failed with status ${response.status}`;
+  if (data && typeof data === 'object') message = data.detail || data.message || message;
+  else if (typeof data === 'string' && data) message = data;
+  const error = new Error(message);
+  error.response = response;
+  error.data = data;
+  error.detail = data?.detail || data?.message;
+  error.status = response.status;
+  throw error;
+};
+
 export const apiGet = async (endpoint, params = {}) => {
-  // Build URL with query parameters
-  let url = endpoint;
-  const queryParams = new URLSearchParams();
-  
-  // Add query parameters
-  Object.keys(params).forEach(key => {
-    if (params[key] !== null && params[key] !== undefined && params[key] !== '') {
-      queryParams.append(key, String(params[key]));
-    }
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== '') query.append(key, String(value));
   });
-  
-  const queryString = queryParams.toString();
-  if (queryString) {
-    // Check if endpoint already has query parameters
-    const separator = url.includes('?') ? '&' : '?';
-    url += separator + queryString;
-  }
-  
+  const queryString = query.toString();
+  const separator = endpoint.includes('?') ? '&' : '?';
+  const url = queryString ? `${endpoint}${separator}${queryString}` : endpoint;
   const { response, data } = await apiRequest(url, { method: 'GET' });
-  
-  if (!response.ok) {
-    // Try to extract error message from response
-    let errorMessage = `Request failed with status ${response.status}`;
-    if (data && typeof data === 'object') {
-      errorMessage = data.detail || data.message || errorMessage;
-    } else if (typeof data === 'string') {
-      errorMessage = data;
-    }
-    
-    const error = new Error(errorMessage);
-    error.response = response;
-    error.data = data;
-    error.status = response.status;
-    throw error;
-  }
-  
+  if (!response.ok) throwApiError(response, data);
   return data;
 };
 
-/**
- * Make a POST request
- */
 export const apiPost = async (endpoint, body, options = {}) => {
   const { response, data } = await apiRequest(endpoint, { method: 'POST', body, ...options });
-  
-  if (!response.ok) {
-    // Try to extract error message from response
-    let errorMessage = `Request failed with status ${response.status}`;
-    if (data && typeof data === 'object') {
-      errorMessage = data.detail || data.message || errorMessage;
-    } else if (typeof data === 'string') {
-      errorMessage = data;
-    }
-    
-    // Handle authentication errors (401 only - 403 is permission denied, not auth failure)
-    if (response.status === 401) {
-      // Clear invalid token
-      localStorage.removeItem('accessToken');
-      // Redirect to login if not already there
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
-    }
-    // Note: 403 errors are permission issues, not authentication issues
-    // Don't redirect - let the calling code handle the error message
-    
-    const error = new Error(errorMessage);
-    error.detail = data?.detail || data?.message;
-    error.status = response.status;
-    throw error;
-  }
-  
+  if (!response.ok) throwApiError(response, data);
   return data;
 };
 
-/**
- * Make a PUT request
- */
 export const apiPut = async (endpoint, body, options = {}) => {
   const { response, data } = await apiRequest(endpoint, { method: 'PUT', body, ...options });
-  
-  if (!response.ok) {
-    // Try to extract error message from response
-    let errorMessage = `Request failed with status ${response.status}`;
-    if (data && typeof data === 'object') {
-      errorMessage = data.detail || data.message || errorMessage;
-    } else if (typeof data === 'string') {
-      errorMessage = data;
-    }
-    
-    // Handle authentication errors (401 only - 403 is permission denied, not auth failure)
-    if (response.status === 401) {
-      // Clear invalid token
-      localStorage.removeItem('accessToken');
-      // Redirect to login if not already there
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
-    }
-    // Note: 403 errors are permission issues, not authentication issues
-    // Don't redirect - let the calling code handle the error message
-    
-    const error = new Error(errorMessage);
-    error.detail = data?.detail || data?.message;
-    error.status = response.status;
-    throw error;
-  }
-  
+  if (!response.ok) throwApiError(response, data);
   return data;
 };
 
-/**
- * Make a DELETE request
- */
 export const apiDelete = async (endpoint, options = {}) => {
   const { response, data } = await apiRequest(endpoint, { method: 'DELETE', ...options });
-  
-  if (!response.ok) {
-    // Try to extract error message from response
-    let errorMessage = `Request failed with status ${response.status}`;
-    if (data && typeof data === 'object') {
-      errorMessage = data.detail || data.message || errorMessage;
-    } else if (typeof data === 'string') {
-      errorMessage = data;
-    }
-    
-    // Handle authentication errors (401 only - 403 is permission denied, not auth failure)
-    if (response.status === 401) {
-      // Clear invalid token
-      localStorage.removeItem('accessToken');
-      // Redirect to login if not already there
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
-    }
-    // Note: 403 errors are permission issues, not authentication issues
-    // Don't redirect - let the calling code handle the error message
-    
-    const error = new Error(errorMessage);
-    error.detail = data?.detail || data?.message;
-    error.status = response.status;
-    throw error;
-  }
-  
+  if (!response.ok) throwApiError(response, data);
   return data;
 };
 
-/**
- * Make a PATCH request
- */
 export const apiPatch = async (endpoint, body, options = {}) => {
   const { response, data } = await apiRequest(endpoint, { method: 'PATCH', body, ...options });
-  
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
-  
+  if (!response.ok) throwApiError(response, data);
   return data;
 };
 
-/**
- * Handle API response and throw errors for non-2xx status codes
- */
-export const handleApiResponse = async (response) => {
-  if (!response.ok) {
-    let errorMessage = `Request failed with status ${response.status}`;
-    
-    try {
-      const errorData = await response.json();
-      errorMessage = errorData.detail || errorData.message || errorMessage;
-    } catch {
-      // If response is not JSON, use the status text
-      errorMessage = response.statusText || errorMessage;
-    }
-    
-    throw new Error(errorMessage);
+export const apiUpload = async (endpoint, formData) => {
+  const request = async (token) => fetch(buildUrl(endpoint), {
+    method: 'POST',
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  let response = await request(getAuthToken());
+  if (response.status === 401) {
+    const renewedToken = await refreshAccessToken();
+    if (renewedToken) response = await request(renewedToken);
   }
-  
+  const data = await parseResponse(response);
+  if (!response.ok) throwApiError(response, data);
+  return data;
+};
+
+export const handleApiResponse = async (response) => {
+  if (!response.ok) throwApiError(response, await parseResponse(response));
   return response;
 };
 
-/**
- * Make an authenticated API request with error handling
- */
 export const authenticatedRequest = async (endpoint, options = {}) => {
   const { response, data } = await apiRequest(endpoint, options);
-  await handleApiResponse(response);
+  if (!response.ok) throwApiError(response, data);
   return data;
 };
 
-export default {
-  apiRequest,
-  apiGet,
-  apiPost,
-  apiPut,
-  apiDelete,
-  apiPatch,
-  handleApiResponse,
-  authenticatedRequest,
-  getAuthToken,
-  getHeaders,
+const api = {
+  apiRequest, apiGet, apiPost, apiPut, apiDelete, apiPatch, apiUpload, authenticatedRequest,
+  clearAuthSession, ensureAuthenticated, getAuthToken, getHeaders, handleApiResponse,
+  logoutSession, refreshAccessToken, saveAuthSession,
 };
+
+export default api;

@@ -85,6 +85,14 @@ class UserResponse(UserBase):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    remember_me: bool = False
+
+class RefreshTokenRequest(BaseModel):
+    """Optional body used by non-browser clients that cannot use cookies."""
+    refresh_token: Optional[str] = None
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None
 
 # Password change schema
 class PasswordChange(BaseModel):
@@ -131,6 +139,7 @@ class AdminPasswordReset(BaseModel):
 # Google OAuth schema
 class GoogleAuth(BaseModel):
     google_token: str
+    remember_me: bool = False
 
 # User list response (for admin)
 class UserListResponse(BaseModel):

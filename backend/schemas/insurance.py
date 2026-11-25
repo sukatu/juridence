@@ -1,10 +1,11 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime
+from datetime import date, datetime
 import json
 
 class InsuranceBase(BaseModel):
     name: str = Field(..., max_length=255)
+    former_name: Optional[str] = Field(None, max_length=255)
     short_name: Optional[str] = Field(None, max_length=100)
     logo_url: Optional[str] = Field(None, max_length=500)
     website: Optional[str] = Field(None, max_length=255)
@@ -17,6 +18,7 @@ class InsuranceBase(BaseModel):
     postal_code: Optional[str] = Field(None, max_length=20)
     license_number: Optional[str] = Field(None, max_length=100)
     registration_number: Optional[str] = Field(None, max_length=100)
+    date_of_incorporation: Optional[date] = None
     established_date: Optional[datetime] = None
     insurance_type: Optional[str] = Field(None, max_length=50)
     ownership_type: Optional[str] = Field(None, max_length=50)
@@ -59,6 +61,7 @@ class InsuranceCreate(InsuranceBase):
 
 class InsuranceUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
+    former_name: Optional[str] = Field(None, max_length=255)
     short_name: Optional[str] = Field(None, max_length=100)
     logo_url: Optional[str] = Field(None, max_length=500)
     website: Optional[str] = Field(None, max_length=255)
@@ -71,6 +74,7 @@ class InsuranceUpdate(BaseModel):
     postal_code: Optional[str] = Field(None, max_length=20)
     license_number: Optional[str] = Field(None, max_length=100)
     registration_number: Optional[str] = Field(None, max_length=100)
+    date_of_incorporation: Optional[date] = None
     established_date: Optional[datetime] = None
     insurance_type: Optional[str] = Field(None, max_length=50)
     ownership_type: Optional[str] = Field(None, max_length=50)

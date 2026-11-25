@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X, LogOut, Settings, ChevronDown, Bell, Clock, CheckCircle, AlertCircle, Info } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
+import { logoutSession } from '../utils/api';
 
 const Header = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -180,23 +181,12 @@ const Header = () => {
   };
 
 
-  const handleLogout = () => {
-    // Clear all authentication data
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userPicture');
-    localStorage.removeItem('authProvider');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('userData');
-    
+  const handleLogout = async () => {
     // If user was authenticated via Google, also sign out from Google
     if (window.google?.accounts?.id) {
       window.google.accounts.id.disableAutoSelect();
     }
-    
-    // Dispatch custom event to notify other components
-    window.dispatchEvent(new CustomEvent('authStateChanged'));
+    await logoutSession();
     
     setIsAuthenticated(false);
     setUserEmail('');

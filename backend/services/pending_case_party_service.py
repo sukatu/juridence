@@ -5,7 +5,7 @@ from typing import Dict, List, Sequence
 from models.pending_case_party import PendingCaseParty
 
 
-CASE_SEPARATOR = re.compile(r"\s+(?:VS|VRS|VERSUS)\.?\s+", re.IGNORECASE)
+CASE_SEPARATOR = re.compile(r"\b(?:V|VS|VRS|VERSUS)\.?\s+", re.IGNORECASE)
 NUMBERED_PARTY = re.compile(r"(?:^|\s+)(?:\d+[.)])\s*")
 NON_ALPHANUMERIC = re.compile(r"[^a-z0-9]+")
 

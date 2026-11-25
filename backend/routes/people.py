@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Body
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func, desc, asc, String
 from database import get_db
 from models.people import People
@@ -23,6 +23,63 @@ from services.ai_service import get_openai_client, AIService
 
 router = APIRouter()
 
+
+def _person_response(person: People, include_case_statistics: bool = False) -> Dict[str, Any]:
+    """Build a response without mutating the persisted person record."""
+    data = {
+        column.name: getattr(person, column.name)
+        for column in People.__table__.columns
+    }
+
+    full_name = (data.get("full_name") or "").strip()
+    name_parts = full_name.split()
+    data["full_name"] = full_name or "Unknown"
+    data["first_name"] = (data.get("first_name") or "").strip() or (name_parts[0] if name_parts else None)
+    data["last_name"] = (data.get("last_name") or "").strip() or (name_parts[-1] if name_parts else None)
+    data["search_count"] = data.get("search_count") or 0
+
+    if data.get("risk_score") is not None:
+        data["risk_score"] = min(max(float(data["risk_score"]), 0.0), 200.0)
+
+    statistics = person.case_statistics if include_case_statistics else None
+    if statistics:
+        data.update({
+            "total_cases": statistics.total_cases or 0,
+            "resolved_cases": statistics.resolved_cases or 0,
+            "unresolved_cases": statistics.unresolved_cases or 0,
+            "favorable_cases": statistics.favorable_cases or 0,
+            "unfavorable_cases": statistics.unfavorable_cases or 0,
+            "mixed_cases": statistics.mixed_cases or 0,
+            "case_outcome": statistics.case_outcome or "N/A",
+        })
+    else:
+        case_count = data.get("case_count") or 0
+        data.update({
+            "total_cases": case_count,
+            "resolved_cases": 0,
+            "unresolved_cases": case_count,
+            "favorable_cases": 0,
+            "unfavorable_cases": 0,
+            "mixed_cases": 0,
+            "case_outcome": "N/A",
+        })
+
+    return data
+
+
+def _likely_person_name_filters():
+    """Conservative display filters for records that resemble a person's name."""
+    trimmed_name = func.btrim(People.full_name)
+    return [
+        trimmed_name.op("~*")(r"^[[:alpha:]][[:alpha:] .,'-]{1,118}[[:alpha:].]$"),
+        trimmed_name.op("!~*")(r"(^|[[:space:]])(VRS|VS|VERSUS)([.[:space:]]|$)|[&]"),
+        trimmed_name.op("!~*")(
+            r"ERRED IN LAW|MATRIMONIAL PROPERT|CONTRACT DISPUTE|DISPUTE INVOLVING|"
+            r"PLAINTIFF|DEFENDANT|APPLICANT|RESPONDENT|IN THE MATTER"
+        ),
+        trimmed_name.op("!~*")(r"(^|[[:space:]])(AND|WITH|FOR|OF|THE)[[:space:]]*$"),
+    ]
+
 @router.get("/search", response_model=PeopleSearchResponse)
 async def search_people(
     query: Optional[str] = Query(None, description="General search query"),
@@ -41,6 +98,11 @@ async def search_people(
     nationality: Optional[str] = Query(None, description="Nationality filter"),
     is_verified: Optional[bool] = Query(None, description="Verification status filter"),
     person_status: Optional[str] = Query(None, description="Status filter"),
+    record_quality: Optional[str] = Query(
+        None,
+        regex="^(curated|case_extracted)$",
+        description="Administrative record-quality view",
+    ),
     min_risk_score: Optional[float] = Query(None, ge=0, le=200, description="Minimum risk score"),
     max_risk_score: Optional[float] = Query(None, ge=0, le=200, description="Maximum risk score"),
     min_case_count: Optional[int] = Query(None, ge=0, description="Minimum case count"),
@@ -56,10 +118,7 @@ async def search_people(
     try:
         # Build query - only join case statistics for small queries to improve performance
         if limit <= 20:
-            query_obj = db.query(People).outerjoin(
-                PersonCaseStatistics, 
-                People.id == PersonCaseStatistics.person_id
-            )
+            query_obj = db.query(People).options(joinedload(People.case_statistics))
         else:
             query_obj = db.query(People)
         
@@ -118,7 +177,18 @@ async def search_people(
         if is_verified is not None:
             filters.append(People.is_verified == is_verified)
         if person_status:
-            filters.append(People.status == person_status)
+            filters.append(func.lower(func.coalesce(People.status, "active")) == person_status.lower())
+        if record_quality == "curated":
+            filters.extend([
+                People.is_verified.is_(True),
+                or_(
+                    People.notes.is_(None),
+                    ~People.notes.ilike("Name extracted from case titles.%"),
+                ),
+                *_likely_person_name_filters(),
+            ])
+        elif record_quality == "case_extracted":
+            filters.append(People.notes.ilike("Name extracted from case titles.%"))
         if min_risk_score is not None:
             filters.append(People.risk_score >= min_risk_score)
         if max_risk_score is not None:
@@ -151,68 +221,13 @@ async def search_people(
         has_next = page < total_pages
         has_prev = page > 1
         
-        # Add case statistics if available (without updating search counts for performance)
-        for person in people:
-            # Cap risk score at 200 to prevent validation errors
-            if person.risk_score and person.risk_score > 200:
-                person.risk_score = 200.0
-            # Normalize empty/invalid names and ensure non-null before commit
-            if not person.first_name or (isinstance(person.first_name, str) and not person.first_name.strip()):
-                if person.full_name:
-                    parts = person.full_name.split()
-                    person.first_name = parts[0] if parts else "Unknown"
-                else:
-                    person.first_name = "Unknown"
-            if not person.last_name or (isinstance(person.last_name, str) and not person.last_name.strip()):
-                if person.full_name:
-                    parts = person.full_name.split()
-                    person.last_name = parts[-1] if parts else person.first_name
-                else:
-                    person.last_name = person.first_name
-            if not person.full_name or (isinstance(person.full_name, str) and not person.full_name.strip()):
-                person.full_name = f"{person.first_name} {person.last_name}".strip() or "Unknown"
-            
-            if limit <= 20:
-                # Case statistics already joined for small queries
-                if hasattr(person, 'case_statistics') and person.case_statistics:
-                    stats = person.case_statistics
-                    person.total_cases = stats.total_cases
-                    person.resolved_cases = stats.resolved_cases
-                    person.unresolved_cases = stats.unresolved_cases
-                    person.favorable_cases = stats.favorable_cases
-                    person.unfavorable_cases = stats.unfavorable_cases
-                    person.mixed_cases = stats.mixed_cases
-                    person.case_outcome = stats.case_outcome
-                else:
-                    # Default values if no statistics available
-                    person.total_cases = 0
-                    person.resolved_cases = 0
-                    person.unresolved_cases = 0
-                    person.favorable_cases = 0
-                    person.unfavorable_cases = 0
-                    person.mixed_cases = 0
-                    person.case_outcome = "N/A"
-            else:
-                # For large queries, use basic case count from People table
-                person.total_cases = person.case_count or 0
-                person.resolved_cases = 0
-                person.unresolved_cases = person.case_count or 0
-                person.favorable_cases = 0
-                person.unfavorable_cases = 0
-                person.mixed_cases = 0
-                person.case_outcome = "N/A"
-        
-        # Only commit if we're updating search counts (for single searches, not batch loads)
-        if limit <= 20:  # Only update search counts for small queries
-            for person in people:
-                if person.search_count is None:
-                    person.search_count = 0
-                person.search_count += 1
-                person.last_searched = func.now()
-            db.commit()
+        response_people = [
+            _person_response(person, include_case_statistics=limit <= 20)
+            for person in people
+        ]
         
         return PeopleSearchResponse(
-            people=people,
+            people=response_people,
             total=total,
             page=page,
             limit=limit,
@@ -464,12 +479,7 @@ async def get_person(
                 detail="Person not found"
             )
         
-        # Update search count
-        person.search_count += 1
-        person.last_searched = func.now()
-        db.commit()
-        
-        return person
+        return _person_response(person, include_case_statistics=True)
         
     except HTTPException:
         raise

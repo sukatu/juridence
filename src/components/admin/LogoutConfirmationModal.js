@@ -1,77 +1,78 @@
-import React from 'react';
-import { X } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { LogOut, X } from 'lucide-react';
 
 const LogoutConfirmationModal = ({ onClose, onConfirm }) => {
+  const cancelButtonRef = useRef(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    cancelButtonRef.current?.focus();
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
   return (
-    <>
-      {/* Overlay with backdrop blur */}
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center"
-        style={{
-          background: 'rgba(4.60, 14.87, 27.60, 0.50)',
-          backdropFilter: 'blur(8px)'
-        }}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#050F1C]/55 p-4 backdrop-blur-[2px]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="logout-dialog-title"
+        aria-describedby="logout-dialog-description"
+        className="relative w-full max-w-[420px] border border-[#CDD5DF] bg-white p-6 shadow-2xl"
       >
-        {/* Modal */}
-        <div className="bg-white rounded-lg p-8 relative" style={{ width: '378px' }}>
-          {/* Close Button */}
-          <button
-            onClick={onClose}
-            className="absolute top-8 right-8 w-6 h-6 flex items-center justify-center hover:opacity-70 cursor-pointer"
-          >
-            <X className="w-6 h-6 text-[#050F1C]" />
-          </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center text-[#525866] transition-colors hover:bg-[#F1F3F5] hover:text-[#050F1C] focus:outline-none focus:ring-2 focus:ring-[#35639A]"
+          aria-label="Close logout confirmation"
+          title="Close"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
 
-          {/* Modal Content */}
-          <div className="flex flex-col items-center gap-8">
-            {/* Heading and Description */}
-            <div className="flex flex-col items-center gap-2">
-              <h2
-                className="text-[#050F1C] text-lg text-center"
-                style={{ fontFamily: 'Poppins', fontWeight: 400 }}
-              >
-                Are You Sure You Want To Log Out?
-              </h2>
-              <p
-                className="text-[#525866] text-xs text-center"
-                style={{ fontFamily: 'Satoshi', fontWeight: 400 }}
-              >
-                Press "Log Out" to leave or "Cancel" to return to Dashboard.
-              </p>
-            </div>
-
-            {/* Buttons */}
-            <div className="flex items-start gap-10 w-full">
-              {/* Cancel Button */}
-              <button
-                onClick={onClose}
-                className="flex-1 h-[58px] px-2.5 shadow-md rounded-lg border-2 border-[#4CAF50] flex items-center justify-center gap-2.5 hover:bg-green-50 transition-colors"
-              >
-                <span
-                  className="text-[#10B981] text-base font-bold"
-                  style={{ fontFamily: 'Satoshi' }}
-                >
-                  Cancel
-                </span>
-              </button>
-
-              {/* Log out Button */}
-              <button
-                onClick={onConfirm}
-                className="flex-1 h-[58px] px-2.5 bg-gradient-to-b from-[#EF4444] to-[#B11E1E] shadow-md rounded-lg border-4 border-[rgba(239,68,68,0.15)] flex items-center justify-center gap-2.5 hover:opacity-90 transition-opacity"
-              >
-                <span
-                  className="text-white text-base font-bold"
-                  style={{ fontFamily: 'Satoshi' }}
-                >
-                  Log Out
-                </span>
-              </button>
-            </div>
-          </div>
+        <div className="pr-10">
+          <h2 id="logout-dialog-title" className="m-0 text-lg font-semibold text-[#050F1C]">
+            Log out of Juridence?
+          </h2>
+          <p id="logout-dialog-description" className="mb-0 mt-2 text-sm leading-5 text-[#525866]">
+            Your current session will end and you will return to the sign-in page.
+          </p>
         </div>
-      </div>
-    </>
+
+        <div className="mt-6 flex justify-end gap-3 border-t border-[#E4E7EB] pt-4">
+          <button
+            ref={cancelButtonRef}
+            type="button"
+            onClick={onClose}
+            className="h-10 border border-[#AEB8C4] bg-white px-4 text-sm font-semibold text-[#263241] transition-colors hover:bg-[#F7F8FA] focus:outline-none focus:ring-2 focus:ring-[#35639A]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="inline-flex h-10 items-center gap-2 border border-[#B42318] bg-[#C62828] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#A61B1B] focus:outline-none focus:ring-2 focus:ring-[#D64545] focus:ring-offset-2"
+          >
+            <LogOut className="h-4 w-4" aria-hidden="true" />
+            Log out
+          </button>
+        </div>
+      </section>
+    </div>
   );
 };
 

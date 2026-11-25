@@ -56,8 +56,11 @@ async def search_banks(
         db_query = db_query.filter(
             or_(
                 func.lower(Banks.name).like(search_term),
+                func.lower(Banks.former_name).like(search_term),
                 func.lower(Banks.short_name).like(search_term),
                 func.lower(Banks.bank_code).like(search_term),
+                func.lower(Banks.swift_code).like(search_term),
+                func.lower(Banks.license_number).like(search_term),
                 func.lower(Banks.city).like(search_term),
                 func.lower(Banks.region).like(search_term),
                 func.lower(Banks.description).like(search_term)
@@ -145,16 +148,6 @@ async def search_banks(
     # Apply pagination
     offset = (page - 1) * limit
     banks = db_query.offset(offset).limit(limit).all()
-    
-    # Update search count for each bank
-    for bank in banks:
-        if bank.search_count is None:
-            bank.search_count = 1
-        else:
-            bank.search_count += 1
-        bank.last_searched = func.now()
-    
-    db.commit()
     
     # Calculate pagination info
     total_pages = math.ceil(total / limit)

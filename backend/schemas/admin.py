@@ -7,7 +7,7 @@ from enum import Enum
 class UserRole(str, Enum):
     admin = "admin"
     user = "user"
-    moderator = "moderator"
+    premium = "premium"
 
 class UserStatus(str, Enum):
     active = "active"
@@ -110,6 +110,9 @@ class UserResponse(BaseResponse):
     court_type: Optional[str] = None
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
+    subscription_plan: Optional[str] = None
+    subscription_expires: Optional[datetime] = None
+    is_premium: bool = False
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None
@@ -207,6 +210,19 @@ class CaseResponse(BaseResponse):
     court_type: Optional[str] = None
     court_division: Optional[str] = None
     status: Optional[str] = None
+    year: Optional[int] = None
+    type: Optional[str] = None
+    region: Optional[str] = None
+    town: Optional[str] = None
+    citation: Optional[str] = None
+    dl_citation_no: Optional[str] = None
+    area_of_law: Optional[str] = None
+    published: Optional[bool] = None
+    ai_case_outcome: Optional[str] = None
+    ai_financial_impact: Optional[str] = None
+    ai_summary_generated_at: Optional[str] = None
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -284,6 +300,8 @@ class CaseCreateRequest(BaseModel):
     academic_programme_id: Optional[int] = None
     opinion_by: Optional[str] = None
     conclusion: Optional[str] = None
+    ai_case_outcome: Optional[str] = None
+    ai_financial_impact: Optional[str] = None
 
 class CaseUpdateRequest(BaseModel):
     title: Optional[str] = None
@@ -323,6 +341,8 @@ class CaseUpdateRequest(BaseModel):
     academic_programme_id: Optional[int] = None
     opinion_by: Optional[str] = None
     conclusion: Optional[str] = None
+    ai_case_outcome: Optional[str] = None
+    ai_financial_impact: Optional[str] = None
 
 class CaseListResponse(BaseModel):
     cases: List[CaseResponse]

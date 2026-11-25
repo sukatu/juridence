@@ -13,6 +13,7 @@ import CorporateClientNotificationsPage from '../components/CorporateClientNotif
 import CorporateClientSystemSettingsPage from '../components/CorporateClientSystemSettingsPage';
 import CorporateClientSearchResultsPage from '../components/CorporateClientSearchResultsPage';
 import LogoutConfirmationModal from '../components/admin/LogoutConfirmationModal';
+import { logoutSession } from '../utils/api';
 
 const CorporateClientDashboard = () => {
   const navigate = useNavigate();
@@ -41,16 +42,8 @@ const CorporateClientDashboard = () => {
     setShowLogoutModal(true);
   };
 
-  const confirmLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userPicture');
-    localStorage.removeItem('authProvider');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('userData');
-
-    window.dispatchEvent(new CustomEvent('authStateChanged'));
+  const confirmLogout = async () => {
+    await logoutSession();
     navigate('/');
   };
 

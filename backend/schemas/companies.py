@@ -49,6 +49,7 @@ class Shareholder(BaseModel):
 
 class CompaniesBase(BaseModel):
     name: str = Field(..., max_length=255)
+    former_name: Optional[str] = Field(None, max_length=255)
     short_name: Optional[str] = Field(None, max_length=100)
     logo_url: Optional[str] = Field(None, max_length=500)
     website: Optional[str] = Field(None, max_length=255)
@@ -142,6 +143,7 @@ class CompaniesCreate(CompaniesBase):
 
 class CompaniesUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=255)
+    former_name: Optional[str] = Field(None, max_length=255)
     short_name: Optional[str] = Field(None, max_length=100)
     logo_url: Optional[str] = Field(None, max_length=500)
     website: Optional[str] = Field(None, max_length=255)

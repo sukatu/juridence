@@ -31,6 +31,19 @@ SUBSCRIPTION_PLANS = {
         ],
         "is_popular": False
     },
+    "basic": {
+        "name": "Basic",
+        "description": "Core workspace access with reports billed under per-report terms",
+        "price": Decimal("0.00"),
+        "currency": "USD",
+        "billing_cycle": "monthly",
+        "features": [
+            PlanFeature(name="Entity searches", description="Search and confirm entity records", included=True),
+            PlanFeature(name="Single-item reports", description="Generate reports under per-report commercial terms", included=True),
+            PlanFeature(name="Email support", description="Standard support via email", included=True),
+        ],
+        "is_popular": False
+    },
     "professional": {
         "name": "Professional",
         "description": "Advanced features for professionals",
@@ -71,9 +84,14 @@ async def get_subscription_plans(
     try:
         plans = []
         current_subscription = current_user.subscription
+        current_plan = (
+            current_subscription.plan.value
+            if current_subscription and hasattr(current_subscription.plan, "value")
+            else (current_user.subscription_plan or "free")
+        )
         
         for plan_id, plan_data in SUBSCRIPTION_PLANS.items():
-            is_current = current_subscription and current_subscription.plan == plan_id
+            is_current = current_plan == plan_id
             plans.append(SubscriptionPlanResponse(
                 id=plan_id,
                 name=plan_data["name"],
@@ -102,22 +120,18 @@ async def get_current_subscription(
     """Get current user's subscription with usage data"""
     try:
         subscription = current_user.subscription
-        
-        if not subscription:
-            # Create default free subscription
-            subscription = Subscription(
-                user_id=current_user.id,
-                plan=SubscriptionPlan.FREE,
-                status=SubscriptionStatus.ACTIVE,
-                amount=Decimal("0.00"),
-                currency="USD",
-                billing_cycle="monthly",
-                features=["Basic searches", "Basic filters", "Email support"],
-                limits={"searches_per_month": 50, "api_calls_per_month": 0}
-            )
-            db.add(subscription)
-            db.commit()
-            db.refresh(subscription)
+        plan_value = (
+            subscription.plan.value
+            if subscription and hasattr(subscription.plan, "value")
+            else (current_user.subscription_plan or "free")
+        )
+        if plan_value not in SUBSCRIPTION_PLANS:
+            plan_value = "free"
+        status_value = (
+            subscription.status.value
+            if subscription and hasattr(subscription.status, "value")
+            else "active"
+        )
         
         # Get usage data for current month
         start_of_month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -135,10 +149,10 @@ async def get_current_subscription(
         ).count()
         
         # Get plan limits
-        plan_data = SUBSCRIPTION_PLANS.get(subscription.plan.value, SUBSCRIPTION_PLANS["free"])
+        plan_data = SUBSCRIPTION_PLANS[plan_value]
         limits = {
             "searches_per_month": plan_data["features"][0].limit if plan_data["features"][0].limit else None,
-            "api_calls_per_month": 1000 if subscription.plan == SubscriptionPlan.PROFESSIONAL else None
+            "api_calls_per_month": 1000 if plan_value == SubscriptionPlan.PROFESSIONAL.value else None
         }
         
         usage = {
@@ -149,10 +163,13 @@ async def get_current_subscription(
         }
         
         return SubscriptionUsageResponse(
-            plan=subscription.plan.value,
-            status=subscription.status.value,
-            expires_at=subscription.end_date,
-            is_premium=subscription.plan != SubscriptionPlan.FREE,
+            plan=plan_value,
+            status=status_value,
+            expires_at=subscription.end_date if subscription else current_user.subscription_expires,
+            is_premium=bool(
+                current_user.is_premium
+                or plan_value in {SubscriptionPlan.PROFESSIONAL.value, SubscriptionPlan.ENTERPRISE.value}
+            ),
             features=[f.name for f in plan_data["features"] if f.included],
             usage=usage,
             limits=limits

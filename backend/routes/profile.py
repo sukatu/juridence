@@ -31,6 +31,9 @@ async def update_my_profile(
     
     # Update the database user
     update_data = profile_data.dict(exclude_unset=True)
+    # Organisation membership is an access-control boundary and is not a
+    # self-service profile field.
+    update_data.pop("organization", None)
     
     for field, value in update_data.items():
         if hasattr(db_user, field):
@@ -74,12 +77,8 @@ async def upload_avatar(
     db: Session = Depends(get_db)
 ):
     """Upload profile picture."""
-    print(f"Upload request received for user {current_user.id}")
-    print(f"File details: {file.filename}, {file.content_type}, {file.size}")
-    
     # Validate file type
-    if not file.content_type.startswith('image/'):
-        print(f"Invalid file type: {file.content_type}")
+    if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must be an image"
@@ -87,28 +86,27 @@ async def upload_avatar(
     
     # Validate file size (5MB max)
     file_content = await file.read()
-    print(f"File content size: {len(file_content)} bytes")
-    
     if len(file_content) > 5 * 1024 * 1024:
-        print("File too large")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File size must be less than 5MB"
         )
     
     # Generate unique filename
-    file_extension = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+    file_extension = os.path.splitext(file.filename or "")[1].lower().lstrip(".")
+    if file_extension not in {"jpg", "jpeg", "png", "webp"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must be a JPG, PNG, or WebP image"
+        )
     unique_filename = f"{uuid.uuid4()}.{file_extension}"
-    print(f"Generated filename: {unique_filename}")
     
     # Create uploads directory if it doesn't exist
     upload_dir = "uploads/avatars"
     os.makedirs(upload_dir, exist_ok=True)
-    print(f"Upload directory: {upload_dir}")
     
     # Save file
     file_path = os.path.join(upload_dir, unique_filename)
-    print(f"Saving file to: {file_path}")
     
     with open(file_path, "wb") as buffer:
         buffer.write(file_content)
@@ -118,8 +116,6 @@ async def upload_avatar(
     current_user.profile_picture = profile_picture_url
     current_user.updated_at = datetime.utcnow()
     db.commit()
-    
-    print(f"Profile picture updated to: {profile_picture_url}")
     
     return {
         "message": "Avatar uploaded successfully",

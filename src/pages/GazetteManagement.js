@@ -130,7 +130,11 @@ const GazetteManagement = () => {
     { value: 'CHANGE_OF_NAME', label: 'Change of Name', icon: User, color: 'blue' },
     { value: 'CHANGE_OF_DATE_OF_BIRTH', label: 'Correction of Date of Birth', icon: Calendar, color: 'green' },
     { value: 'CHANGE_OF_PLACE_OF_BIRTH', label: 'Correction of Place of Birth', icon: MapPin, color: 'orange' },
-    { value: 'APPOINTMENT_OF_MARRIAGE_OFFICERS', label: 'Marriage Officers', icon: User, color: 'purple' }
+    { value: 'APPOINTMENT_OF_MARRIAGE_OFFICERS', label: 'Marriage Officers', icon: User, color: 'purple' },
+    { value: 'COMPANY_WINDING_UP', label: 'Winding Up of a Company', icon: Building, color: 'red' },
+    { value: 'COMPANY_DISSOLUTION', label: 'Dissolution of Companies', icon: Building, color: 'red' },
+    { value: 'COMPANY_STRIKE_OFF_INTENTION', label: 'Intention to Strike Off', icon: Building, color: 'orange' },
+    { value: 'EXTERNAL_COMPANY_CESSATION', label: 'Cessation of External Company', icon: Building, color: 'gray' }
   ];
 
   const statusOptions = [
@@ -1580,6 +1584,10 @@ const GazetteManagement = () => {
                     <option value="CHANGE_OF_DATE_OF_BIRTH">Change of Date of Birth</option>
                     <option value="CHANGE_OF_PLACE_OF_BIRTH">Change of Place of Birth</option>
                     <option value="APPOINTMENT_OF_MARRIAGE_OFFICERS">Appointment of Marriage Officers</option>
+                    <option value="COMPANY_WINDING_UP">Notice of Winding Up of a Company</option>
+                    <option value="COMPANY_DISSOLUTION">Notice of Dissolution of Companies from the Register</option>
+                    <option value="COMPANY_STRIKE_OFF_INTENTION">Notice of Intention to Strike Off Companies from the Register</option>
+                    <option value="EXTERNAL_COMPANY_CESSATION">Notice of Cessation of Business of External Company</option>
                   </select>
                 </div>
 

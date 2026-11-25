@@ -65,6 +65,8 @@ from routes import case_summaries
 from routes import watchlist
 from routes import cause_list
 from routes import dashboard_search
+from routes import company_lifecycle
+from routes import workspace
 from config import settings
 
 # Application lifespan
@@ -72,6 +74,8 @@ from config import settings
 async def lifespan(app: FastAPI):
     # Startup
     print("Starting juridence Backend...")
+    if not settings.debug and settings.secret_key == "your-secret-key-change-this-in-production":
+        raise RuntimeError("SECRET_KEY must be configured before running in production")
     create_tables()
     print("Database tables created successfully")
     yield
@@ -166,6 +170,8 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["not
 app.include_router(security.router, prefix="/api/security", tags=["security"])
 app.include_router(admin.router, tags=["admin"])
 app.include_router(dashboard_search.router)
+app.include_router(company_lifecycle.router, prefix="/api")
+app.include_router(workspace.router)
 app.include_router(admin_payments.router, prefix="/api/admin/payments", tags=["admin_payments"])
 app.include_router(admin_case_hearings.router, prefix="/api", tags=["admin_case_hearings"])
 app.include_router(judges.router, prefix="/api", tags=["judges"])
@@ -225,10 +231,19 @@ async def health_check():
 async def persons_unified_search_fallback(
     query: str,
     page: int = 1,
-    limit: int = 100,
+    limit: int = 25,
+    source_type: str = None,
+    include_judgments: bool = False,
     db=Depends(get_db)
 ):
-    return await unified_persons_search(query=query, page=page, limit=limit, db=db)
+    return await unified_persons_search(
+        query=query,
+        page=page,
+        limit=limit,
+        source_type=source_type,
+        include_judgments=include_judgments,
+        db=db,
+    )
 
 # Global exception handler
 @app.exception_handler(Exception)

@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Union
 from jose import JWTError, jwt
 import bcrypt
+import hashlib
+import secrets
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -42,14 +44,18 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
     
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "token_type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
-def verify_token(token: str) -> Optional[dict]:
+def verify_token(token: str, expected_type: str = "access") -> Optional[dict]:
     """Verify and decode a JWT token."""
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        token_type = payload.get("token_type")
+        # Tokens issued before session refresh support did not contain a type.
+        if token_type not in (None, expected_type):
+            return None
         return payload
     except JWTError:
         return None
@@ -75,6 +81,18 @@ def get_current_user(
         user_id: int = payload.get("sub")
         if user_id is None:
             raise credentials_exception
+
+        session_id = payload.get("sid")
+        if session_id is not None:
+            from models.security import LoginSession
+            session = db.query(LoginSession).filter(
+                LoginSession.id == session_id,
+                LoginSession.user_id == int(user_id),
+                LoginSession.is_active == True,
+                LoginSession.expires_at > datetime.utcnow(),
+            ).first()
+            if session is None:
+                raise credentials_exception
         
         user = db.query(User).filter(User.id == user_id).first()
         if user is None:
@@ -82,6 +100,9 @@ def get_current_user(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with ID {user_id} not found"
             )
+        from models.user import UserStatus
+        if user.status != UserStatus.ACTIVE:
+            raise credentials_exception
         
         return user
     except HTTPException:
@@ -155,30 +176,48 @@ def authenticate_user(db: Session, email: str, password: str) -> Union[User, boo
         return False
     return user
 
-def create_user_token(user: User) -> str:
+def create_user_token(user: User, session_id: Optional[int] = None) -> str:
     """Create an access token for a user."""
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    token_data = {"sub": str(user.id), "email": user.email, "role": user.role}
+    if session_id is not None:
+        token_data["sid"] = session_id
     access_token = create_access_token(
-        data={"sub": str(user.id), "email": user.email, "role": user.role},
+        data=token_data,
         expires_delta=access_token_expires
     )
     return access_token
 
+def generate_refresh_token() -> str:
+    """Create a high-entropy opaque refresh token for an HttpOnly cookie."""
+    return secrets.token_urlsafe(48)
+
+def hash_refresh_token(token: str) -> str:
+    """Hash refresh tokens before storing or querying them."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
 def verify_google_token(token: str) -> Optional[dict]:
-    """Verify Google OAuth token and extract user info."""
-    # This would typically involve calling Google's API to verify the token
-    # For now, we'll implement a basic structure
+    """Verify a Google ID token and extract its trusted identity claims."""
+    if not settings.google_client_id:
+        return None
     try:
-        # In a real implementation, you would:
-        # 1. Call Google's tokeninfo endpoint
-        # 2. Verify the token signature
-        # 3. Extract user information
-        # For now, we'll return a mock response
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token
+
+        payload = id_token.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            settings.google_client_id,
+        )
+        if payload.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+            return None
+        if not payload.get("email") or not payload.get("email_verified"):
+            return None
         return {
-            "sub": "google_user_id",
-            "email": "user@example.com",
-            "name": "Google User",
-            "picture": "https://example.com/picture.jpg"
+            "sub": payload["sub"],
+            "email": payload["email"],
+            "name": payload.get("name") or payload["email"].split("@")[0],
+            "picture": payload.get("picture"),
         }
-    except Exception:
+    except (ImportError, ValueError):
         return None

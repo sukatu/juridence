@@ -1,905 +1,513 @@
-import React, { useState, useEffect } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../../utils/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  Edit3,
+  FileText,
+  Loader2,
+  Plus,
+  Search,
+  ShieldCheck,
+  UserRound,
+  UsersRound,
+  X,
+} from 'lucide-react';
+import { apiGet, apiPost, apiPut } from '../../utils/api';
 import PersonDetails from './PersonDetails';
-import AdminHeader from './AdminHeader';
-import { Search, User, Plus, Edit, Trash2, X } from 'lucide-react';
+
+const PAGE_SIZE = 25;
+
+const TABS = [
+  { id: 'people', label: 'Person index', description: 'Canonical person profiles' },
+  { id: 'change_of_name', label: 'Name changes', description: 'Published changes of name' },
+  { id: 'correction_of_place_of_birth', label: 'Place of birth', description: 'Published place corrections' },
+  { id: 'correction_of_date_of_birth', label: 'Date of birth', description: 'Published date corrections' },
+  { id: 'marriage_officers', label: 'Marriage officers', description: 'Published appointments' },
+];
+
+const FIELD_CONFIGS = {
+  people: {
+    title: 'person record',
+    endpoint: '/api/people',
+    fields: [
+      { name: 'first_name', label: 'First name', required: true },
+      { name: 'last_name', label: 'Last name', required: true },
+      { name: 'full_name', label: 'Display name' },
+      { name: 'occupation', label: 'Occupation' },
+      { name: 'employer', label: 'Employer' },
+      { name: 'phone_number', label: 'Phone' },
+      { name: 'email', label: 'Email', type: 'email' },
+      { name: 'city', label: 'City' },
+      { name: 'region', label: 'Region' },
+      { name: 'country', label: 'Country' },
+      { name: 'address', label: 'Address', type: 'textarea' },
+      { name: 'is_verified', label: 'Record has been reviewed', type: 'checkbox' },
+      { name: 'status', label: 'Status', type: 'select', options: ['active', 'inactive', 'archived'] },
+      { name: 'notes', label: 'Internal notes', type: 'textarea' },
+    ],
+  },
+  change_of_name: {
+    title: 'change of name notice',
+    endpoint: '/api/change-of-name',
+    numericFields: ['page_number', 'person_id'],
+    fields: [
+      { name: 'item_number', label: 'Item number', required: true },
+      { name: 'old_name', label: 'Previous name', required: true },
+      { name: 'new_name', label: 'Current name', required: true },
+      { name: 'alias_name', label: 'Alias' },
+      { name: 'profession', label: 'Profession' },
+      { name: 'gender', label: 'Gender' },
+      { name: 'address', label: 'Address', type: 'textarea' },
+      { name: 'town_city', label: 'Town / city' },
+      { name: 'region', label: 'Region' },
+      { name: 'effective_date', label: 'Effective date', type: 'date' },
+      { name: 'gazette_number', label: 'Gazette number', required: true },
+      { name: 'gazette_date', label: 'Gazette date', type: 'date', required: true },
+      { name: 'page_number', label: 'Page', type: 'number' },
+      { name: 'document_filename', label: 'Source file', required: true },
+      { name: 'source_details', label: 'Source details', type: 'textarea' },
+      { name: 'remarks', label: 'Remarks', type: 'textarea' },
+      { name: 'person_id', label: 'Linked person ID', type: 'number' },
+    ],
+  },
+  correction_of_place_of_birth: {
+    title: 'place of birth correction',
+    endpoint: '/api/correction-of-place-of-birth',
+    numericFields: ['item_number', 'gazette_number', 'page', 'person_id'],
+    fields: [
+      { name: 'item_number', label: 'Item number', type: 'number', required: true },
+      { name: 'person_name', label: 'Person name', required: true },
+      { name: 'alias', label: 'Alias' },
+      { name: 'profession', label: 'Profession' },
+      { name: 'address', label: 'Address', type: 'textarea' },
+      { name: 'gender', label: 'Gender' },
+      { name: 'old_place_of_birth', label: 'Previous place of birth' },
+      { name: 'new_place_of_birth', label: 'Corrected place of birth' },
+      { name: 'effective_date', label: 'Effective date', type: 'date' },
+      { name: 'gazette_number', label: 'Gazette number', type: 'number' },
+      { name: 'gazette_date', label: 'Gazette date', type: 'date' },
+      { name: 'page', label: 'Page', type: 'number' },
+      { name: 'document_filename', label: 'Source file', required: true },
+      { name: 'source_details', label: 'Source details', type: 'textarea' },
+      { name: 'remarks', label: 'Remarks', type: 'textarea' },
+      { name: 'person_id', label: 'Linked person ID', type: 'number' },
+    ],
+  },
+  correction_of_date_of_birth: {
+    title: 'date of birth correction',
+    endpoint: '/api/correction-of-date-of-birth',
+    numericFields: ['page', 'person_id'],
+    fields: [
+      { name: 'item_number', label: 'Item number', required: true },
+      { name: 'person_name', label: 'Person name', required: true },
+      { name: 'alias', label: 'Alias' },
+      { name: 'profession', label: 'Profession' },
+      { name: 'address', label: 'Address', type: 'textarea' },
+      { name: 'gender', label: 'Gender' },
+      { name: 'old_date_of_birth', label: 'Previous date of birth', type: 'date' },
+      { name: 'new_date_of_birth', label: 'Corrected date of birth', type: 'date' },
+      { name: 'effective_date', label: 'Effective date', type: 'date' },
+      { name: 'gazette_number', label: 'Gazette number' },
+      { name: 'gazette_date', label: 'Gazette date', type: 'date' },
+      { name: 'page', label: 'Page', type: 'number' },
+      { name: 'document_filename', label: 'Source file', required: true },
+      { name: 'source_details', label: 'Source details', type: 'textarea' },
+      { name: 'remarks', label: 'Remarks', type: 'textarea' },
+      { name: 'person_id', label: 'Linked person ID', type: 'number' },
+    ],
+  },
+  marriage_officers: {
+    title: 'marriage officer appointment',
+    endpoint: '/api/marriage-officers',
+    numericFields: ['page_number', 'person_id'],
+    fields: [
+      { name: 'officer_name', label: 'Officer name', required: true },
+      { name: 'church', label: 'Church / organisation' },
+      { name: 'location', label: 'Location' },
+      { name: 'appointing_authority', label: 'Appointing authority' },
+      { name: 'appointment_date', label: 'Appointment date', type: 'date' },
+      { name: 'gazette_number', label: 'Gazette number' },
+      { name: 'gazette_date', label: 'Gazette date', type: 'date' },
+      { name: 'page_number', label: 'Page', type: 'number' },
+      { name: 'source_details', label: 'Source details', type: 'textarea' },
+      { name: 'document_filename', label: 'Source file' },
+      { name: 'person_id', label: 'Linked person ID', type: 'number' },
+    ],
+  },
+};
+
+const formatDate = (value) => {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const formatDateInput = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') return value.split('T')[0];
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().split('T')[0];
+};
+
+const displayValue = (value, type) => {
+  if (value === null || value === undefined || value === '') return 'Not recorded';
+  if (type === 'date') return formatDate(value);
+  if (type === 'checkbox') return value ? 'Yes' : 'No';
+  if (Array.isArray(value)) return value.length ? value.join(', ') : 'Not recorded';
+  return String(value);
+};
+
+const recordName = (tab, record) => {
+  if (tab === 'change_of_name') return record.new_name || record.old_name;
+  if (tab === 'marriage_officers') return record.officer_name;
+  return record.person_name;
+};
+
+const publication = (record) => [
+  record.gazette_number ? `Gazette ${record.gazette_number}` : null,
+  record.page_number || record.page ? `p. ${record.page_number || record.page}` : null,
+].filter(Boolean).join(' - ') || 'Reference not recorded';
 
 const PeopleRelationshipsPage = ({ userInfo, onNavigate, onLogout }) => {
-  const [people, setPeople] = useState([]);
-  const [changeOfName, setChangeOfName] = useState([]);
-  const [correctionPlace, setCorrectionPlace] = useState([]);
-  const [correctionDate, setCorrectionDate] = useState([]);
-  const [marriageOfficers, setMarriageOfficers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedPerson, setSelectedPerson] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('people');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-  const itemsPerPage = 20;
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [draftSearch, setDraftSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [recordView, setRecordView] = useState('curated');
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [selectedSourceRecord, setSelectedSourceRecord] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [formMode, setFormMode] = useState('create');
   const [formTab, setFormTab] = useState('people');
   const [formData, setFormData] = useState({});
-  const [formError, setFormError] = useState(null);
+  const [formError, setFormError] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
 
-  const tabs = [
-    { id: 'people', label: 'People' },
-    { id: 'change_of_name', label: 'Change of Name' },
-    { id: 'correction_of_place_of_birth', label: 'Change of Place of Birth' },
-    { id: 'correction_of_date_of_birth', label: 'Change of Date of Birth' },
-    { id: 'marriage_officers', label: 'Marriage Officers' }
-  ];
+  const currentTab = useMemo(() => TABS.find((tab) => tab.id === activeTab) || TABS[0], [activeTab]);
+  const firstRecord = total ? ((page - 1) * PAGE_SIZE) + 1 : 0;
+  const lastRecord = Math.min(page * PAGE_SIZE, total);
 
-  const fieldConfigs = {
-    people: {
-      title: 'Person',
-      endpoint: '/api/people',
-      fields: [
-        { name: 'first_name', label: 'First Name', required: true },
-        { name: 'last_name', label: 'Last Name', required: true },
-        { name: 'full_name', label: 'Full Name' },
-        { name: 'phone_number', label: 'Phone' },
-        { name: 'email', label: 'Email', type: 'email' },
-        { name: 'city', label: 'City' },
-        { name: 'region', label: 'Region' },
-        { name: 'gender', label: 'Gender' },
-        { name: 'occupation', label: 'Occupation' },
-        { name: 'address', label: 'Address' }
-      ],
-      numericFields: ['person_id']
-    },
-    change_of_name: {
-      title: 'Change of Name',
-      endpoint: '/api/change-of-name',
-      fields: [
-        { name: 'item_number', label: 'Item Number', required: true },
-        { name: 'old_name', label: 'Old Name', required: true },
-        { name: 'new_name', label: 'New Name', required: true },
-        { name: 'alias_name', label: 'Alias' },
-        { name: 'profession', label: 'Profession' },
-        { name: 'gender', label: 'Gender' },
-        { name: 'address', label: 'Address' },
-        { name: 'town_city', label: 'Town/City' },
-        { name: 'region', label: 'Region' },
-        { name: 'effective_date', label: 'Effective Date', type: 'date' },
-        { name: 'gazette_number', label: 'Gazette Number', required: true },
-        { name: 'gazette_date', label: 'Gazette Date', type: 'date', required: true },
-        { name: 'page_number', label: 'Page Number', type: 'number' },
-        { name: 'document_filename', label: 'Document Filename', required: true },
-        { name: 'source_details', label: 'Source Details' },
-        { name: 'source', label: 'Source' },
-        { name: 'remarks', label: 'Remarks' },
-        { name: 'person_id', label: 'Person ID', type: 'number' }
-      ],
-      numericFields: ['page_number', 'person_id']
-    },
-    correction_of_place_of_birth: {
-      title: 'Correction of Place of Birth',
-      endpoint: '/api/correction-of-place-of-birth',
-      fields: [
-        { name: 'item_number', label: 'Item Number', type: 'number', required: true },
-        { name: 'person_name', label: 'Person Name', required: true },
-        { name: 'alias', label: 'Alias' },
-        { name: 'profession', label: 'Profession' },
-        { name: 'address', label: 'Address' },
-        { name: 'gender', label: 'Gender' },
-        { name: 'old_place_of_birth', label: 'Old Place of Birth' },
-        { name: 'new_place_of_birth', label: 'New Place of Birth' },
-        { name: 'effective_date', label: 'Effective Date', type: 'date' },
-        { name: 'remarks', label: 'Remarks' },
-        { name: 'gazette_number', label: 'Gazette Number', type: 'number' },
-        { name: 'gazette_date', label: 'Gazette Date', type: 'date' },
-        { name: 'page', label: 'Page', type: 'number' },
-        { name: 'document_filename', label: 'Document Filename', required: true },
-        { name: 'source_details', label: 'Source Details' },
-        { name: 'person_id', label: 'Person ID', type: 'number' }
-      ],
-      numericFields: ['item_number', 'gazette_number', 'page', 'person_id']
-    },
-    correction_of_date_of_birth: {
-      title: 'Correction of Date of Birth',
-      endpoint: '/api/correction-of-date-of-birth',
-      fields: [
-        { name: 'item_number', label: 'Item Number', required: true },
-        { name: 'person_name', label: 'Person Name', required: true },
-        { name: 'alias', label: 'Alias' },
-        { name: 'profession', label: 'Profession' },
-        { name: 'address', label: 'Address' },
-        { name: 'gender', label: 'Gender' },
-        { name: 'old_date_of_birth', label: 'Old Date of Birth', type: 'date' },
-        { name: 'new_date_of_birth', label: 'New Date of Birth', type: 'date' },
-        { name: 'effective_date', label: 'Effective Date', type: 'date' },
-        { name: 'remarks', label: 'Remarks' },
-        { name: 'gazette_number', label: 'Gazette Number' },
-        { name: 'gazette_date', label: 'Gazette Date', type: 'date' },
-        { name: 'page', label: 'Page', type: 'number' },
-        { name: 'document_filename', label: 'Document Filename', required: true },
-        { name: 'source_details', label: 'Source Details' },
-        { name: 'person_id', label: 'Person ID', type: 'number' }
-      ],
-      numericFields: ['page', 'person_id']
-    },
-    marriage_officers: {
-      title: 'Marriage Officer',
-      endpoint: '/api/marriage-officers',
-      fields: [
-        { name: 'officer_name', label: 'Officer Name', required: true },
-        { name: 'church', label: 'Church' },
-        { name: 'location', label: 'Location' },
-        { name: 'appointing_authority', label: 'Appointing Authority' },
-        { name: 'appointment_date', label: 'Appointment Date', type: 'date' },
-        { name: 'gazette_number', label: 'Gazette Number' },
-        { name: 'gazette_date', label: 'Gazette Date', type: 'date' },
-        { name: 'page_number', label: 'Page Number', type: 'number' },
-        { name: 'source_details', label: 'Source Details' },
-        { name: 'document_filename', label: 'Document Filename' },
-        { name: 'person_id', label: 'Person ID', type: 'number' }
-      ],
-      numericFields: ['page_number', 'person_id']
-    }
-  };
-
-  const formatDateInput = (value) => {
-    if (!value) return '';
-    if (typeof value === 'string') {
-      return value.split('T')[0];
-    }
+  const loadRecords = useCallback(async () => {
+    const config = FIELD_CONFIGS[activeTab];
+    setLoading(true);
+    setError('');
     try {
-      return new Date(value).toISOString().split('T')[0];
-    } catch {
-      return '';
+      const params = { page, limit: PAGE_SIZE };
+      if (activeTab === 'people') {
+        params.sort_by = 'full_name';
+        params.sort_order = 'asc';
+        params.person_status = 'active';
+        if (appliedSearch) params.query = appliedSearch;
+        if (recordView === 'curated') params.record_quality = 'curated';
+        if (recordView === 'case_extracted') params.record_quality = 'case_extracted';
+        if (recordView === 'unreviewed') params.is_verified = false;
+        const response = await apiGet('/api/people/search', params);
+        setRecords(response.people || []);
+        setTotal(Number(response.total || 0));
+        setTotalPages(Number(response.total_pages || 0));
+      } else {
+        if (appliedSearch) params.search = appliedSearch;
+        const response = await apiGet(config.endpoint, params);
+        setRecords(response.results || []);
+        setTotal(Number(response.total || 0));
+        setTotalPages(Number(response.total_pages || 0));
+      }
+    } catch (requestError) {
+      setRecords([]);
+      setTotal(0);
+      setTotalPages(0);
+      setError(requestError.message || 'People records could not be loaded.');
+    } finally {
+      setLoading(false);
     }
+  }, [activeTab, appliedSearch, page, recordView]);
+
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
+
+  const changeTab = (tabId) => {
+    setActiveTab(tabId);
+    setPage(1);
+    setDraftSearch('');
+    setAppliedSearch('');
+    setError('');
   };
 
-  const getInitialFormData = (tabId, record = null) => {
-    const config = fieldConfigs[tabId];
-    if (!config) return {};
-    const data = {};
-    config.fields.forEach((field) => {
-      const value = record ? record[field.name] : '';
-      data[field.name] = field.type === 'date' ? formatDateInput(value) : (value ?? '');
-    });
-    if (record?.id) {
-      data.id = record.id;
+  const submitSearch = (event) => {
+    event.preventDefault();
+    const nextSearch = draftSearch.trim();
+    if (page === 1 && nextSearch === appliedSearch) {
+      loadRecords();
+      return;
     }
-    return data;
+    setPage(1);
+    setAppliedSearch(nextSearch);
   };
 
-  const normalizeFormData = (tabId, data) => {
-    const config = fieldConfigs[tabId];
-    if (!config) return data;
-    const normalized = { ...data };
-    config.fields.forEach((field) => {
-      if (normalized[field.name] === '') {
-        normalized[field.name] = null;
-      }
-    });
-    config.numericFields?.forEach((fieldName) => {
-      if (normalized[fieldName] !== null && normalized[fieldName] !== undefined && normalized[fieldName] !== '') {
-        const parsed = parseInt(normalized[fieldName], 10);
-        normalized[fieldName] = Number.isNaN(parsed) ? normalized[fieldName] : parsed;
-      }
-    });
-    if (tabId === 'people') {
-      if (!normalized.full_name && (normalized.first_name || normalized.last_name)) {
-        normalized.full_name = `${normalized.first_name || ''} ${normalized.last_name || ''}`.trim();
-      }
-    }
-    return normalized;
+  const clearSearch = () => {
+    const shouldReload = page === 1 && !appliedSearch;
+    setDraftSearch('');
+    setAppliedSearch('');
+    setPage(1);
+    if (shouldReload) loadRecords();
   };
 
-  const openCreate = (tabId) => {
+  const initialFormData = (tabId, record = null) => {
+    const config = FIELD_CONFIGS[tabId];
+    return config.fields.reduce((data, field) => {
+      const value = record?.[field.name];
+      if (field.type === 'date') data[field.name] = formatDateInput(value);
+      else if (field.type === 'checkbox') data[field.name] = Boolean(value);
+      else data[field.name] = value ?? (field.name === 'status' ? 'active' : '');
+      return data;
+    }, record?.id ? { id: record.id } : {});
+  };
+
+  const openForm = (mode, tabId, record = null) => {
+    setFormMode(mode);
     setFormTab(tabId);
-    setFormMode('create');
-    setFormData(getInitialFormData(tabId));
-    setFormError(null);
-    setShowForm(true);
-  };
-
-  const openEdit = (tabId, record) => {
-    setFormTab(tabId);
-    setFormMode('edit');
-    setFormData(getInitialFormData(tabId, record));
-    setFormError(null);
+    setFormData(initialFormData(tabId, record));
+    setFormError('');
     setShowForm(true);
   };
 
   const closeForm = () => {
+    if (formSubmitting) return;
     setShowForm(false);
-    setFormError(null);
-    setFormSubmitting(false);
+    setFormError('');
   };
 
-  const handleFormSubmit = async (event) => {
+  const normalizedFormData = () => {
+    const config = FIELD_CONFIGS[formTab];
+    const data = { ...formData };
+    delete data.id;
+    config.fields.forEach((field) => {
+      if (field.type !== 'checkbox' && data[field.name] === '') data[field.name] = null;
+    });
+    config.numericFields?.forEach((fieldName) => {
+      if (data[fieldName] !== null && data[fieldName] !== undefined) {
+        const number = Number.parseInt(data[fieldName], 10);
+        data[fieldName] = Number.isNaN(number) ? data[fieldName] : number;
+      }
+    });
+    if (formTab === 'people' && !data.full_name) {
+      data.full_name = [data.first_name, data.last_name].filter(Boolean).join(' ');
+    }
+    return data;
+  };
+
+  const saveRecord = async (event) => {
     event.preventDefault();
-    const config = fieldConfigs[formTab];
-    if (!config) return;
-    const missingRequired = config.fields.filter(
-      (field) => field.required && !formData[field.name]
-    );
-    if (missingRequired.length) {
-      setFormError(`Please fill required fields: ${missingRequired.map((f) => f.label).join(', ')}`);
+    const config = FIELD_CONFIGS[formTab];
+    const missing = config.fields.filter((field) => field.required && !formData[field.name]);
+    if (missing.length) {
+      setFormError(`Complete the required fields: ${missing.map((field) => field.label).join(', ')}.`);
       return;
     }
 
+    setFormSubmitting(true);
+    setFormError('');
     try {
-      setFormSubmitting(true);
-      setFormError(null);
-      const payload = normalizeFormData(formTab, formData);
-      if (formMode === 'create') {
-        await apiPost(config.endpoint, payload);
-      } else {
-        await apiPut(`${config.endpoint}/${formData.id}`, payload);
-      }
-      closeForm();
-      await loadList();
-    } catch (error) {
-      console.error('Error saving record:', error);
-      setFormError(error?.message || 'Failed to save record.');
+      const payload = normalizedFormData();
+      if (formMode === 'create') await apiPost(config.endpoint, payload);
+      else await apiPut(`${config.endpoint}/${formData.id}`, payload);
+      setShowForm(false);
+      await loadRecords();
+    } catch (requestError) {
+      setFormError(requestError.message || 'The record could not be saved.');
     } finally {
       setFormSubmitting(false);
     }
   };
 
-  const handleDelete = async (tabId, recordId) => {
-    const config = fieldConfigs[tabId];
-    if (!config) return;
-    const confirmed = window.confirm('Are you sure you want to delete this record?');
-    if (!confirmed) return;
-    try {
-      await apiDelete(`${config.endpoint}/${recordId}`);
-      await loadList();
-    } catch (error) {
-      console.error('Error deleting record:', error);
-    }
-  };
-
-  // Load list on mount and when page/tab changes
-  useEffect(() => {
-    loadList();
-  }, [currentPage, activeTab]);
-
-  // Reset paging on tab/search change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, searchTerm]);
-
-  const loadList = async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: itemsPerPage.toString()
-      });
-
-      const trimmedSearch = searchTerm.trim();
-
-      if (activeTab === 'people') {
-        if (trimmedSearch) {
-          params.append('query', trimmedSearch);
-        }
-      const data = await apiGet(`/api/people/search?${params.toString()}`);
-      setPeople(data.people || []);
-      setTotalPages(data.total_pages || 1);
-        setTotalItems(data.total || 0);
-        setChangeOfName([]);
-        setCorrectionPlace([]);
-        setCorrectionDate([]);
-        setMarriageOfficers([]);
-      } else if (activeTab === 'correction_of_place_of_birth') {
-        if (trimmedSearch) {
-          params.append('search', trimmedSearch);
-        }
-        const data = await apiGet(`/api/correction-of-place-of-birth?${params.toString()}`);
-        setCorrectionPlace(data.results || []);
-        setTotalPages(data.total_pages || 1);
-        setTotalItems(data.total || 0);
-        setPeople([]);
-        setChangeOfName([]);
-        setCorrectionDate([]);
-        setMarriageOfficers([]);
-      } else if (activeTab === 'correction_of_date_of_birth') {
-        if (trimmedSearch) {
-          params.append('search', trimmedSearch);
-        }
-        const data = await apiGet(`/api/correction-of-date-of-birth?${params.toString()}`);
-        setCorrectionDate(data.results || []);
-        setTotalPages(data.total_pages || 1);
-        setTotalItems(data.total || 0);
-        setPeople([]);
-        setChangeOfName([]);
-        setCorrectionPlace([]);
-        setMarriageOfficers([]);
-      } else if (activeTab === 'marriage_officers') {
-        if (trimmedSearch) {
-          params.append('search', trimmedSearch);
-        }
-        const data = await apiGet(`/api/marriage-officers?${params.toString()}`);
-        setMarriageOfficers(data.results || []);
-        setTotalPages(data.total_pages || 1);
-        setTotalItems(data.total || 0);
-        setPeople([]);
-        setChangeOfName([]);
-        setCorrectionPlace([]);
-        setCorrectionDate([]);
-      } else if (activeTab === 'change_of_name') {
-        if (trimmedSearch) {
-          params.append('search', trimmedSearch);
-        }
-        const data = await apiGet(`/api/change-of-name?${params.toString()}`);
-        setChangeOfName(data.results || []);
-        setTotalPages(data.total_pages || 1);
-        setTotalItems(data.total || 0);
-        setPeople([]);
-        setCorrectionPlace([]);
-        setCorrectionDate([]);
-        setMarriageOfficers([]);
-      }
-    } catch (error) {
-      console.error('Error loading people:', error);
-      setPeople([]);
-      setChangeOfName([]);
-      setCorrectionPlace([]);
-      setCorrectionDate([]);
-      setMarriageOfficers([]);
-      setTotalPages(1);
-      setTotalItems(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearch = (e) => {
-    e.preventDefault();
-    setCurrentPage(1);
-    loadList();
-  };
-
-  const handlePersonClick = (person) => {
-    setSelectedPerson(person);
-  };
-
-  const handleBack = () => {
-    setSelectedPerson(null);
-  };
-
-  // If a person is selected, show their details
   if (selectedPerson) {
     return (
       <PersonDetails
         person={selectedPerson}
-        onBack={handleBack}
+        onBack={() => setSelectedPerson(null)}
         userInfo={userInfo}
         onNavigate={onNavigate}
         onLogout={onLogout}
-        onViewRelatedPerson={(personData) => setSelectedPerson(personData)}
+        onViewRelatedPerson={setSelectedPerson}
       />
     );
   }
 
+  const renderPeopleRows = () => records.map((person) => {
+    const location = [person.city, person.region, person.country].filter(Boolean).join(', ');
+    const cases = Number(person.total_cases ?? person.case_count ?? 0);
+    return (
+      <tr key={person.id}>
+        <td><code>PER-{String(person.id).padStart(6, '0')}</code></td>
+        <td>
+          <button type="button" className="dd-person-record-link" onClick={() => setSelectedPerson(person)}>
+            <strong>{person.full_name || [person.first_name, person.last_name].filter(Boolean).join(' ') || 'Unnamed person'}</strong>
+          </button>
+          <small>{[person.occupation, person.employer].filter(Boolean).join(' - ') || 'Occupation not recorded'}</small>
+        </td>
+        <td><strong>{person.phone_number || 'Not recorded'}</strong><small>{person.email || 'Email not recorded'}</small></td>
+        <td><strong>{location || 'Not recorded'}</strong><small>{person.address || 'Address not recorded'}</small></td>
+        <td><strong>{cases.toLocaleString()}</strong><small>{cases === 1 ? 'linked case' : 'linked cases'}</small></td>
+        <td><span className={`dd-status-badge${person.is_verified ? ' is-active' : ' is-pending'}`}>{person.is_verified ? 'Verified flag' : 'Unreviewed'}</span></td>
+        <td className="dd-people-row-actions">
+          <button type="button" className="dd-icon-button" onClick={() => setSelectedPerson(person)} title="Open person record" aria-label="Open person record"><Eye size={14} /></button>
+          <button type="button" className="dd-icon-button" onClick={() => openForm('edit', 'people', person)} title="Edit person record" aria-label="Edit person record"><Edit3 size={14} /></button>
+        </td>
+      </tr>
+    );
+  });
+
+  const renderSourceRows = () => records.map((record) => {
+    let publishedDetail = 'Published notice';
+    if (activeTab === 'change_of_name') publishedDetail = `${record.old_name || 'Not recorded'} to ${record.new_name || 'Not recorded'}`;
+    if (activeTab === 'correction_of_place_of_birth') publishedDetail = `${record.old_place_of_birth || 'Not recorded'} to ${record.new_place_of_birth || 'Not recorded'}`;
+    if (activeTab === 'correction_of_date_of_birth') publishedDetail = `${formatDate(record.old_date_of_birth)} to ${formatDate(record.new_date_of_birth)}`;
+    if (activeTab === 'marriage_officers') publishedDetail = [record.church, record.location].filter(Boolean).join(', ') || 'Appointment details not recorded';
+    return (
+      <tr key={record.id}>
+        <td><code>{String(record.id).padStart(6, '0')}</code></td>
+        <td><strong>{recordName(activeTab, record) || 'Unnamed record'}</strong><small>{record.profession || record.alias || record.alias_name || 'No additional identity detail'}</small></td>
+        <td><strong>{publishedDetail}</strong><small>{record.effective_date || record.appointment_date ? `Effective ${formatDate(record.effective_date || record.appointment_date)}` : 'Effective date not recorded'}</small></td>
+        <td><strong>{publication(record)}</strong><small>{formatDate(record.gazette_date)}</small></td>
+        <td><strong>{record.document_filename || 'Source file not recorded'}</strong><small>{record.source_details || 'Official Gazette record'}</small></td>
+        <td className="dd-people-row-actions">
+          <button type="button" className="dd-icon-button" onClick={() => setSelectedSourceRecord(record)} title="View source metadata" aria-label="View source metadata"><FileText size={14} /></button>
+          <button type="button" className="dd-icon-button" onClick={() => openForm('edit', activeTab, record)} title="Edit source record" aria-label="Edit source record"><Edit3 size={14} /></button>
+        </td>
+      </tr>
+    );
+  });
+
   return (
-    <div className="bg-[#F7F8FA] min-h-screen">
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
-
-      <div className="px-6 py-6">
-        <div className="bg-white rounded-lg p-6">
-          {/* Header */}
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-[#040E1B] mb-2">People Relationships</h1>
-            <p className="text-[#525866] text-sm">
-              View and manage relationships for people including bank directors, secretaries, auditors, shareholders, beneficial owners, marriage officers, and name changes.
-            </p>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex items-start p-1 gap-4 mb-6 border-b border-[#E4E7EB]">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-start pb-2 ${
-                  activeTab === tab.id ? 'border-b-2 border-[#022658]' : ''
-                }`}
-              >
-                <span className={`text-base ${
-                  activeTab === tab.id ? 'text-[#022658] font-bold' : 'text-[#525866]'
-                }`}>
-                  {tab.label}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {/* Search Bar */}
-          <form onSubmit={handleSearch} className="mb-6">
-            <div className="flex gap-3 items-center">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-[#868C98] w-5 h-5" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={
-                    activeTab === 'people'
-                      ? 'Search by name...'
-                      : activeTab === 'change_of_name'
-                        ? 'Search change of name records...'
-                        : activeTab === 'correction_of_place_of_birth'
-                          ? 'Search by person name...'
-                          : activeTab === 'correction_of_date_of_birth'
-                            ? 'Search by person name...'
-                            : 'Search by officer name...'
-                  }
-                  className="w-full pl-10 pr-4 py-3 border border-[#D4E1EA] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#022658] focus:border-transparent"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-6 py-3 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors font-medium"
-              >
-                Search
-              </button>
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setCurrentPage(1);
-                  }}
-                  className="px-6 py-3 bg-[#F7F8FA] text-[#525866] rounded-lg hover:bg-[#E5E8EC] transition-colors border border-[#D4E1EA]"
-                >
-                  Clear
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => openCreate(activeTab)}
-                className="px-4 py-3 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] transition-colors font-medium flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Add
-              </button>
-            </div>
-          </form>
-
-          {/* Results Count */}
-          <div className="mb-4 text-sm text-[#525866]">
-            {loading ? (
-              'Loading...'
-            ) : (
-              <>
-                Showing {totalItems > 0 ? ((currentPage - 1) * itemsPerPage) + 1 : 0} to{' '}
-                {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} records
-              </>
-            )}
-          </div>
-
-          {/* List */}
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#022658]"></div>
-              <span className="ml-3 text-[#525866]">Loading...</span>
-            </div>
-          ) : activeTab === 'people' && people.length === 0 ? (
-            <div className="text-center py-12">
-              <User className="w-16 h-16 text-[#868C98] mx-auto mb-4" />
-              <p className="text-[#525866] text-lg mb-2">No people found</p>
-              <p className="text-[#868C98] text-sm">
-                {searchTerm ? 'Try a different search term' : 'No people in the database'}
-              </p>
-            </div>
-          ) : activeTab === 'change_of_name' && changeOfName.length === 0 ? (
-            <div className="text-center py-12">
-              <User className="w-16 h-16 text-[#868C98] mx-auto mb-4" />
-              <p className="text-[#525866] text-lg mb-2">No change of name records</p>
-              <p className="text-[#868C98] text-sm">
-                {searchTerm ? 'Try a different search term' : 'Enter a search term to view records'}
-              </p>
-            </div>
-          ) : activeTab === 'correction_of_place_of_birth' && correctionPlace.length === 0 ? (
-            <div className="text-center py-12">
-              <User className="w-16 h-16 text-[#868C98] mx-auto mb-4" />
-              <p className="text-[#525866] text-lg mb-2">No place of birth corrections</p>
-              <p className="text-[#868C98] text-sm">
-                {searchTerm ? 'Try a different search term' : 'No records in the database'}
-              </p>
-            </div>
-          ) : activeTab === 'correction_of_date_of_birth' && correctionDate.length === 0 ? (
-            <div className="text-center py-12">
-              <User className="w-16 h-16 text-[#868C98] mx-auto mb-4" />
-              <p className="text-[#525866] text-lg mb-2">No date of birth corrections</p>
-              <p className="text-[#868C98] text-sm">
-                {searchTerm ? 'Try a different search term' : 'No records in the database'}
-              </p>
-            </div>
-          ) : activeTab === 'marriage_officers' && marriageOfficers.length === 0 ? (
-            <div className="text-center py-12">
-              <User className="w-16 h-16 text-[#868C98] mx-auto mb-4" />
-              <p className="text-[#525866] text-lg mb-2">No marriage officers found</p>
-              <p className="text-[#868C98] text-sm">
-                {searchTerm ? 'Try a different search term' : 'No records in the database'}
-              </p>
-            </div>
-          ) : (
-            <>
-              <div className="border border-[#E5E8EC] rounded-lg overflow-hidden">
-                {/* Table Header */}
-                {activeTab === 'people' && (
-                <div className="bg-[#F4F6F9] grid grid-cols-12 gap-4 px-4 py-3 border-b border-[#E5E8EC]">
-                  <div className="col-span-4">
-                    <span className="text-sm font-bold text-[#070810]">Name</span>
-                  </div>
-                  <div className="col-span-3">
-                    <span className="text-sm font-bold text-[#070810]">Contact</span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-sm font-bold text-[#070810]">Location</span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-sm font-bold text-[#070810]">Risk Score</span>
-                  </div>
-                  <div className="col-span-1">
-                    <span className="text-sm font-bold text-[#070810]">Actions</span>
-                  </div>
-                </div>
-                )}
-                {activeTab === 'change_of_name' && (
-                  <div className="bg-[#F4F6F9] grid grid-cols-12 gap-4 px-4 py-3 border-b border-[#E5E8EC]">
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Item No.</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Old Name</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">New Name</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Alias</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Effective Date</span>
-                    </div>
-                    <div className="col-span-1">
-                      <span className="text-sm font-bold text-[#070810]">Gazette No.</span>
-                    </div>
-                    <div className="col-span-1">
-                      <span className="text-sm font-bold text-[#070810]">Actions</span>
-                    </div>
-                  </div>
-                )}
-                {(activeTab === 'correction_of_place_of_birth' || activeTab === 'correction_of_date_of_birth') && (
-                  <div className="bg-[#F4F6F9] grid grid-cols-12 gap-4 px-4 py-3 border-b border-[#E5E8EC]">
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Item No.</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Person</span>
-                    </div>
-                    <div className="col-span-3">
-                      <span className="text-sm font-bold text-[#070810]">Old</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">New</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Gazette No.</span>
-                    </div>
-                    <div className="col-span-1">
-                      <span className="text-sm font-bold text-[#070810]">Actions</span>
-                    </div>
-                  </div>
-                )}
-                {activeTab === 'marriage_officers' && (
-                  <div className="bg-[#F4F6F9] grid grid-cols-12 gap-4 px-4 py-3 border-b border-[#E5E8EC]">
-                    <div className="col-span-4">
-                      <span className="text-sm font-bold text-[#070810]">Officer</span>
-                    </div>
-                    <div className="col-span-3">
-                      <span className="text-sm font-bold text-[#070810]">Church</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Location</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-sm font-bold text-[#070810]">Gazette</span>
-                    </div>
-                    <div className="col-span-1">
-                      <span className="text-sm font-bold text-[#070810]">Actions</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Table Rows */}
-                <div className="divide-y divide-[#E5E8EC]">
-                  {activeTab === 'people' && people.map((person) => (
-                    <div
-                      key={person.id}
-                      className="grid grid-cols-12 gap-4 px-4 py-4 hover:bg-[#F7F8FA] transition-colors cursor-pointer"
-                      onClick={() => handlePersonClick(person)}
-                    >
-                      <div className="col-span-4">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-[#022658] flex items-center justify-center flex-shrink-0">
-                            {person.full_name || person.first_name || person.last_name ? (
-                              <span className="text-sm font-medium text-white">
-                                {(person.first_name?.charAt(0) || '').toUpperCase()}{(person.last_name?.charAt(0) || '').toUpperCase() || (person.full_name?.charAt(0) || '').toUpperCase()}
-                              </span>
-                            ) : (
-                              <User className="w-5 h-5 text-white" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="font-medium text-[#040E1B]">
-                              {person.full_name || `${person.first_name || ''} ${person.last_name || ''}`.trim() || 'N/A'}
-                            </div>
-                            {person.occupation && (
-                              <div className="text-sm text-[#868C98] mt-1">{person.occupation}</div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="col-span-3">
-                        <div className="text-sm text-[#070810]">
-                          {person.phone_number || person.email || 'N/A'}
-                        </div>
-                      </div>
-                      <div className="col-span-2">
-                        <div className="text-sm text-[#070810]">
-                          {person.city || person.region || 'N/A'}
-                        </div>
-                      </div>
-                      <div className="col-span-2">
-                        {person.risk_score !== undefined && person.risk_level ? (
-                          <div className={`inline-flex px-2 py-1 rounded-lg text-xs font-medium ${
-                            person.risk_score >= 70 ? 'bg-red-100 text-red-600' :
-                            person.risk_score >= 40 ? 'bg-yellow-100 text-yellow-600' :
-                            'bg-green-100 text-green-600'
-                          }`}>
-                            {Math.round(person.risk_score)} - {person.risk_level}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-[#868C98]">N/A</span>
-                        )}
-                      </div>
-                      <div className="col-span-1">
-                        <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handlePersonClick(person);
-                          }}
-                          className="text-[#022658] hover:text-[#033a7a] font-medium text-sm"
-                        >
-                          View
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEdit('people', person);
-                            }}
-                            className="text-[#022658] hover:text-[#033a7a]"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDelete('people', person.id);
-                            }}
-                            className="text-red-600 hover:text-red-700"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {activeTab === 'change_of_name' && changeOfName.map((entry) => (
-                    <div key={entry.id} className="grid grid-cols-12 gap-4 px-4 py-4">
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.item_number || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.old_name || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.new_name || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.alias_name || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.effective_date || 'N/A'}</div>
-                      <div className="col-span-1 text-sm text-[#040E1B]">{entry.gazette_number || 'N/A'}</div>
-                      <div className="col-span-1 flex items-center gap-2">
-                        <button
-                          onClick={() => openEdit('change_of_name', entry)}
-                          className="text-[#022658] hover:text-[#033a7a]"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete('change_of_name', entry.id)}
-                          className="text-red-600 hover:text-red-700"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {activeTab === 'correction_of_place_of_birth' && correctionPlace.map((entry) => (
-                    <div key={entry.id} className="grid grid-cols-12 gap-4 px-4 py-4">
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.item_number || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.person_name || 'N/A'}</div>
-                      <div className="col-span-3 text-sm text-[#040E1B]">{entry.old_place_of_birth || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.new_place_of_birth || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.gazette_number || 'N/A'}</div>
-                      <div className="col-span-1 flex items-center gap-2">
-                        <button
-                          onClick={() => openEdit('correction_of_place_of_birth', entry)}
-                          className="text-[#022658] hover:text-[#033a7a]"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete('correction_of_place_of_birth', entry.id)}
-                          className="text-red-600 hover:text-red-700"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {activeTab === 'correction_of_date_of_birth' && correctionDate.map((entry) => (
-                    <div key={entry.id} className="grid grid-cols-12 gap-4 px-4 py-4">
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.item_number || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.person_name || 'N/A'}</div>
-                      <div className="col-span-3 text-sm text-[#040E1B]">{entry.old_date_of_birth || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.new_date_of_birth || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.gazette_number || 'N/A'}</div>
-                      <div className="col-span-1 flex items-center gap-2">
-                        <button
-                          onClick={() => openEdit('correction_of_date_of_birth', entry)}
-                          className="text-[#022658] hover:text-[#033a7a]"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete('correction_of_date_of_birth', entry.id)}
-                          className="text-red-600 hover:text-red-700"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  {activeTab === 'marriage_officers' && marriageOfficers.map((entry) => (
-                    <div key={entry.id} className="grid grid-cols-12 gap-4 px-4 py-4">
-                      <div className="col-span-4 text-sm text-[#040E1B]">{entry.officer_name || 'N/A'}</div>
-                      <div className="col-span-3 text-sm text-[#040E1B]">{entry.church || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.location || 'N/A'}</div>
-                      <div className="col-span-2 text-sm text-[#040E1B]">{entry.gazette_number || 'N/A'}</div>
-                      <div className="col-span-1 flex items-center gap-2">
-                        <button
-                          onClick={() => openEdit('marriage_officers', entry)}
-                          className="text-[#022658] hover:text-[#033a7a]"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete('marriage_officers', entry.id)}
-                          className="text-red-600 hover:text-red-700"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-6">
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                    className="px-4 py-2 border border-[#D4E1EA] rounded-lg hover:bg-[#F7F8FA] disabled:opacity-50 disabled:cursor-not-allowed text-sm text-[#525866]"
-                  >
-                    Previous
-                  </button>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-[#525866]">
-                      Page {currentPage} of {totalPages}
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 border border-[#D4E1EA] rounded-lg hover:bg-[#F7F8FA] disabled:opacity-50 disabled:cursor-not-allowed text-sm text-[#525866]"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+    <section className="dd-module-shell dd-people-records">
+      <div className="dd-module-heading">
+        <div>
+          <p className="dd-eyebrow">Identity register administration</p>
+          <h2>Canonical person register</h2>
+          <p>Review person profiles and the Gazette records that support identity changes and appointments.</p>
+        </div>
+        <div className="dd-heading-actions">
+          <span className="dd-count-badge"><UsersRound size={14} /> 5 registers</span>
+          <button type="button" className="dd-button dd-button-primary" onClick={() => openForm('create', activeTab)}><Plus size={14} /> Add {activeTab === 'people' ? 'person' : 'notice'}</button>
         </div>
       </div>
 
-      {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-lg w-full max-w-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-[#040E1B]">
-                {formMode === 'create' ? 'Add' : 'Edit'} {fieldConfigs[formTab]?.title}
-              </h2>
-              <button onClick={closeForm} className="text-[#525866] hover:text-[#040E1B]">
-                <X className="w-5 h-5" />
-              </button>
+      <nav className="dd-record-tabs" aria-label="People record databases">
+        {TABS.map((tab) => (
+          <button type="button" key={tab.id} className={activeTab === tab.id ? 'is-active' : ''} onClick={() => changeTab(tab.id)}>
+            <strong>{tab.label}</strong><small>{tab.description}</small>
+          </button>
+        ))}
+      </nav>
+
+      <section className="dd-enquiry-panel">
+        <header>Find records</header>
+        <form className="dd-people-filter-form" onSubmit={submitSearch}>
+          <label className="dd-people-search-field">
+            <span>{activeTab === 'people' ? 'Person name or identifier' : 'Name or publication detail'}</span>
+            <div className="dd-input-with-icon"><Search size={14} /><input value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder={activeTab === 'people' ? 'Search canonical people' : `Search ${currentTab.label.toLowerCase()}`} /></div>
+          </label>
+          {activeTab === 'people' && (
+            <label>
+              <span>Record view</span>
+              <select className="dd-select-control" value={recordView} onChange={(event) => { setRecordView(event.target.value); setPage(1); }}>
+                <option value="curated">Likely person profiles</option>
+                <option value="case_extracted">Case-extracted profiles</option>
+                <option value="unreviewed">Unreviewed imports</option>
+                <option value="all">All active records</option>
+              </select>
+            </label>
+          )}
+          <div className="dd-people-filter-actions">
+            <button type="submit" className="dd-button dd-button-primary" disabled={loading}>{loading ? <Loader2 size={14} className="dd-spin" /> : <Search size={14} />} Search</button>
+            <button type="button" className="dd-button dd-button-secondary" onClick={clearSearch} disabled={!draftSearch && !appliedSearch}><X size={14} /> Clear</button>
+          </div>
+        </form>
+      </section>
+
+      {activeTab === 'people' && (
+        <div className="dd-inline-alert is-info">
+          <span><ShieldCheck size={14} /> Likely person profiles exclude obvious case-text fragments and the legacy automated extraction batch. Every imported row remains available in the other record views and no data is removed.</span>
+        </div>
+      )}
+
+      {error && <div className="dd-inline-alert is-error"><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Dismiss"><X size={14} /></button></div>}
+
+      <section className="dd-enquiry-results" aria-live="polite">
+        <header>
+          <h2>{currentTab.label} <span>{total.toLocaleString()}</span></h2>
+          <div>
+            <span>Records {firstRecord}-{lastRecord} of {total.toLocaleString()}</span>
+            <button type="button" disabled={loading || page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft size={14} /> Prev</button>
+            <button type="button" disabled={loading || page >= totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next <ChevronRight size={14} /></button>
+          </div>
+        </header>
+
+        {loading ? (
+          <div className="dd-loading-state"><Loader2 size={22} className="dd-spin" /> Loading {currentTab.label.toLowerCase()}</div>
+        ) : records.length === 0 ? (
+          <div className="dd-empty-state"><UserRound size={26} /><h3>No matching records</h3><p>Change the search or record view to inspect another part of the register.</p></div>
+        ) : (
+          <div className="dd-table-wrap dd-people-records-table">
+            <table className="dd-data-table">
+              <thead>{activeTab === 'people'
+                ? <tr><th>Person ID</th><th>Name / occupation</th><th>Contact</th><th>Location</th><th>Cases</th><th>Review</th><th aria-label="Actions" /></tr>
+                : <tr><th>Record</th><th>Person</th><th>Published detail</th><th>Gazette</th><th>Source metadata</th><th aria-label="Actions" /></tr>}
+              </thead>
+              <tbody>{activeTab === 'people' ? renderPeopleRows() : renderSourceRows()}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {selectedSourceRecord && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedSourceRecord(null); }}>
+          <div className="dd-modal dd-person-detail-modal" role="dialog" aria-modal="true" aria-labelledby="source-record-title">
+            <header><div><h3 id="source-record-title">{recordName(activeTab, selectedSourceRecord) || 'Source record'}</h3><p>{currentTab.label} - record {selectedSourceRecord.id}</p></div><button type="button" onClick={() => setSelectedSourceRecord(null)} aria-label="Close"><X size={17} /></button></header>
+            <div className="dd-modal-body">
+              <dl className="dd-person-detail-list">{FIELD_CONFIGS[activeTab].fields.map((field) => <div key={field.name}><dt>{field.label}</dt><dd>{displayValue(selectedSourceRecord[field.name], field.type)}</dd></div>)}</dl>
+              <div className="dd-modal-actions"><button type="button" className="dd-button dd-button-secondary" onClick={() => setSelectedSourceRecord(null)}>Close</button><button type="button" className="dd-button dd-button-primary" onClick={() => { const record = selectedSourceRecord; setSelectedSourceRecord(null); openForm('edit', activeTab, record); }}><Edit3 size={14} /> Edit record</button></div>
             </div>
+          </div>
+        </div>
+      )}
 
-            {formError && (
-              <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-                {formError}
-              </div>
-            )}
-
-            <form onSubmit={handleFormSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-              {fieldConfigs[formTab]?.fields.map((field) => {
-                const isTextarea = ['address', 'remarks', 'source_details'].includes(field.name);
-                return (
-                  <div key={field.name}>
-                    <label className="block text-sm font-medium text-[#070810] mb-1">
-                      {field.label}{field.required ? ' *' : ''}
-                    </label>
-                    {isTextarea ? (
-                      <textarea
-                        value={formData[field.name] ?? ''}
-                        onChange={(event) => setFormData((prev) => ({ ...prev, [field.name]: event.target.value }))}
-                        rows={3}
-                        className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#022658] focus:border-transparent"
-                      />
+      {showForm && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm(); }}>
+          <div className="dd-modal dd-person-record-form" role="dialog" aria-modal="true" aria-labelledby="person-form-title">
+            <header><div><h3 id="person-form-title">{formMode === 'create' ? 'Add' : 'Edit'} {FIELD_CONFIGS[formTab].title}</h3><p>Required fields are marked with an asterisk.</p></div><button type="button" onClick={closeForm} aria-label="Close"><X size={17} /></button></header>
+            <form className="dd-modal-body" onSubmit={saveRecord}>
+              {formError && <div className="dd-inline-alert is-error">{formError}</div>}
+              <div className="dd-person-record-form-grid">
+                {FIELD_CONFIGS[formTab].fields.map((field) => (
+                  <label key={field.name} className={field.type === 'textarea' ? 'is-wide' : ''}>
+                    {field.type === 'checkbox' ? (
+                      <span className="dd-checkbox-field"><input type="checkbox" checked={Boolean(formData[field.name])} onChange={(event) => setFormData((current) => ({ ...current, [field.name]: event.target.checked }))} /> {field.label}</span>
                     ) : (
-                      <input
-                        type={field.type || 'text'}
-                        value={formData[field.name] ?? ''}
-                        onChange={(event) => setFormData((prev) => ({ ...prev, [field.name]: event.target.value }))}
-                        className="w-full px-3 py-2 border border-[#D4E1EA] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#022658] focus:border-transparent"
-                      />
+                      <>
+                        <span>{field.label}{field.required ? ' *' : ''}</span>
+                        {field.type === 'textarea' ? <textarea rows={3} value={formData[field.name] ?? ''} onChange={(event) => setFormData((current) => ({ ...current, [field.name]: event.target.value }))} />
+                          : field.type === 'select' ? <select value={formData[field.name] ?? ''} onChange={(event) => setFormData((current) => ({ ...current, [field.name]: event.target.value }))}>{field.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                            : <input type={field.type || 'text'} value={formData[field.name] ?? ''} onChange={(event) => setFormData((current) => ({ ...current, [field.name]: event.target.value }))} />}
+                      </>
                     )}
-                  </div>
-                );
-              })}
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className="px-4 py-2 border border-[#D4E1EA] rounded-lg text-[#525866] hover:bg-[#F7F8FA]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={formSubmitting}
-                  className="px-4 py-2 bg-[#022658] text-white rounded-lg hover:bg-[#033a7a] disabled:opacity-60"
-                >
-                  {formSubmitting ? 'Saving...' : 'Save'}
-                </button>
+                  </label>
+                ))}
               </div>
+              <div className="dd-modal-actions"><button type="button" className="dd-button dd-button-secondary" onClick={closeForm}>Cancel</button><button type="submit" className="dd-button dd-button-primary" disabled={formSubmitting}>{formSubmitting ? <Loader2 size={14} className="dd-spin" /> : <Edit3 size={14} />} {formSubmitting ? 'Saving' : 'Save record'}</button></div>
             </form>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 };
 

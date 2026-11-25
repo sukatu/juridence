@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiPost, logoutSession, saveAuthSession } from '../utils/api';
 
 const useGoogleAuth = () => {
   const [isGoogleLoaded, setIsGoogleLoaded] = useState(false);
@@ -29,32 +30,16 @@ const useGoogleAuth = () => {
     try {
       window.google.accounts.id.initialize({
         client_id: process.env.REACT_APP_GOOGLE_CLIENT_ID || 'your-google-client-id.apps.googleusercontent.com',
-        callback: (response) => {
+        callback: async (response) => {
           setIsLoading(true);
           setError('');
           
           try {
-            // Decode the JWT token to get user info
-            const payload = JSON.parse(atob(response.credential.split('.')[1]));
-            const userInfo = {
-              id: payload.sub,
-              email: payload.email,
-              name: payload.name,
-              picture: payload.picture,
-              given_name: payload.given_name,
-              family_name: payload.family_name
-            };
-            
-            // Store authentication data
-            localStorage.setItem('isAuthenticated', 'true');
-            localStorage.setItem('userEmail', userInfo.email);
-            localStorage.setItem('userName', userInfo.name);
-            localStorage.setItem('userPicture', userInfo.picture);
-            localStorage.setItem('authProvider', 'google');
-            
-            // Dispatch custom event to notify other components
-            window.dispatchEvent(new CustomEvent('authStateChanged'));
-            
+            const data = await apiPost('/auth/google', {
+              google_token: response.credential,
+              remember_me: true,
+            }, { includeAuth: false });
+            const userInfo = saveAuthSession(data, { provider: 'google' });
             onSuccess(userInfo);
           } catch (err) {
             console.error('Error processing Google response:', err);
@@ -108,18 +93,12 @@ const useGoogleAuth = () => {
   }, []);
 
   // Sign out from Google
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async () => {
     if (window.google?.accounts?.id) {
       window.google.accounts.id.disableAutoSelect();
     }
     
-    // Clear local storage
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userPicture');
-    localStorage.removeItem('authProvider');
-    
+    await logoutSession();
     navigate('/');
   }, [navigate]);
 

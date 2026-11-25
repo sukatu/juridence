@@ -10,6 +10,7 @@ import RegistrarNotificationsPage from '../components/RegistrarNotificationsPage
 import RegistrarSystemSettingsPage from '../components/RegistrarSystemSettingsPage';
 import RegistrarsPage from '../components/RegistrarsPage';
 import LogoutConfirmationModal from '../components/admin/LogoutConfirmationModal';
+import { logoutSession } from '../utils/api';
 
 const CourtRegistrarDashboard = () => {
   const navigate = useNavigate();
@@ -38,16 +39,8 @@ const CourtRegistrarDashboard = () => {
     setShowLogoutModal(true);
   };
 
-  const confirmLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userPicture');
-    localStorage.removeItem('authProvider');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('userData');
-
-    window.dispatchEvent(new CustomEvent('authStateChanged'));
+  const confirmLogout = async () => {
+    await logoutSession();
     navigate('/');
   };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { LogIn, Lock } from 'lucide-react';
+import { ensureAuthenticated } from '../utils/api';
 
 const AuthGuard = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -9,9 +10,11 @@ const AuthGuard = ({ children }) => {
   const location = useLocation();
 
   useEffect(() => {
-    const checkAuthStatus = () => {
-      const authStatus = localStorage.getItem('isAuthenticated');
-      const isAuth = authStatus === 'true';
+    let isMounted = true;
+
+    const checkAuthStatus = async () => {
+      const isAuth = await ensureAuthenticated();
+      if (!isMounted) return;
       setIsAuthenticated(isAuth);
       setIsLoading(false);
 
@@ -25,9 +28,7 @@ const AuthGuard = ({ children }) => {
     checkAuthStatus();
 
     // Listen for authentication changes
-    const handleAuthChange = () => {
-      checkAuthStatus();
-    };
+    const handleAuthChange = () => checkAuthStatus();
 
     // Add event listener for custom auth events
     window.addEventListener('authStateChanged', handleAuthChange);
@@ -37,6 +38,7 @@ const AuthGuard = ({ children }) => {
 
     // Cleanup event listeners
     return () => {
+      isMounted = false;
       window.removeEventListener('authStateChanged', handleAuthChange);
       window.removeEventListener('storage', handleAuthChange);
     };

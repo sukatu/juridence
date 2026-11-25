@@ -11,6 +11,7 @@ from models.change_of_name import ChangeOfName
 from models.correction_of_place_of_birth import CorrectionOfPlaceOfBirth
 from models.correction_of_date_of_birth import CorrectionOfDateOfBirth
 from models.marriage_officer import MarriageOfficer
+from models.reported_cases import ReportedCases
 from pydantic import BaseModel
 from typing import Literal
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/persons-unified-search", tags=["persons-unified-sear
 
 class UnifiedSearchResult(BaseModel):
     id: int
-    source_type: Literal["change_of_name", "correction_of_place_of_birth", "correction_of_date_of_birth", "marriage_officer"]
+    source_type: Literal["change_of_name", "correction_of_place_of_birth", "correction_of_date_of_birth", "marriage_officer", "judgment"]
     # Common fields
     name: str  # The primary name to display
     data_source: str  # Human-readable source type
@@ -48,6 +49,16 @@ class UnifiedSearchResult(BaseModel):
     location: Optional[str] = None
     region: Optional[str] = None
     appointing_authority: Optional[str] = None
+
+    # For judgments and rulings
+    title: Optional[str] = None
+    suit_reference_number: Optional[str] = None
+    date: Optional[datetime] = None
+    court_type: Optional[str] = None
+    case_progress: Optional[str] = None
+    protagonist: Optional[str] = None
+    antagonist: Optional[str] = None
+    case_summary: Optional[str] = None
     
     # Metadata
     match_type: Optional[Literal["current_name", "old_name", "alias"]] = None  # For change of name only
@@ -61,12 +72,15 @@ class UnifiedSearchResponse(BaseModel):
     page: int
     limit: int
     total_pages: int
+    source_counts: Dict[str, int]
 
 @router.get("/", response_model=UnifiedSearchResponse)
 async def unified_persons_search(
     query: str = Query(..., min_length=1, description="Search query (name)"),
     page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(100, ge=1, description="Items per page"),
+    limit: int = Query(25, ge=1, le=100, description="Items per page"),
+    source_type: Optional[Literal["change_of_name", "correction_of_place_of_birth", "correction_of_date_of_birth", "marriage_officer", "judgment"]] = Query(None, description="Limit results to one database"),
+    include_judgments: bool = Query(False, description="Include published judgments and rulings"),
     db: Session = Depends(get_db)
 ):
     """Unified search across change_of_name, correction_of_place_of_birth, correction_of_date_of_birth, and marriage_officers tables"""
@@ -316,6 +330,34 @@ async def unified_persons_search(
                 "gazette_number": str(entry.gazette_number) if entry.gazette_number is not None else None,
                 "gazette_date": entry.gazette_date,
             })
+
+        # 5. Search published judgments only when explicitly requested. Existing
+        # API consumers continue to receive the four Gazette datasets by default.
+        if include_judgments or source_type == "judgment":
+            judgment_query = db.query(ReportedCases).filter(
+                or_(
+                    func.coalesce(ReportedCases.title, "").ilike(_pat),
+                    func.coalesce(ReportedCases.protagonist, "").ilike(_pat),
+                    func.coalesce(ReportedCases.antagonist, "").ilike(_pat),
+                    func.coalesce(ReportedCases.presiding_judge, "").ilike(_pat),
+                    func.coalesce(ReportedCases.lawyers, "").ilike(_pat),
+                )
+            )
+            for entry in judgment_query.all():
+                all_results.append({
+                    "id": entry.id,
+                    "source_type": "judgment",
+                    "data_source": "Judgments & Rulings",
+                    "name": entry.title or entry.protagonist or entry.antagonist or "Untitled case",
+                    "title": entry.title,
+                    "suit_reference_number": entry.suit_reference_number or entry.citation,
+                    "date": entry.date,
+                    "court_type": entry.court_type,
+                    "case_progress": entry.case_progress or entry.status,
+                    "protagonist": entry.protagonist,
+                    "antagonist": entry.antagonist,
+                    "case_summary": entry.case_summary,
+                })
         
         # Remove duplicates (keep first occurrence)
         seen = set()
@@ -325,6 +367,14 @@ async def unified_persons_search(
             if key not in seen:
                 seen.add(key)
                 unique_results.append(result)
+
+        source_counts: Dict[str, int] = {}
+        for result in unique_results:
+            result_source = result["source_type"]
+            source_counts[result_source] = source_counts.get(result_source, 0) + 1
+
+        if source_type:
+            unique_results = [result for result in unique_results if result["source_type"] == source_type]
         
         # Sort results (prefer current_name matches, then old_name, then alias, then others)
         def sort_key(result):
@@ -339,14 +389,13 @@ async def unified_persons_search(
         
         unique_results.sort(key=sort_key)
         
-        # Return ALL results - no pagination limit
-        # The user wants all results from all categories, so we fetch everything
-        # The progress bar on the frontend will handle the wait time
         total = len(unique_results)
+        total_pages = math.ceil(total / limit) if total else 0
+        start = (page - 1) * limit
+        paginated_results = unique_results[start:start + limit]
         
-        # Convert to response models (all results, no pagination)
         response_results = []
-        for result in unique_results:
+        for result in paginated_results:
             # Normalize empty date strings to None to satisfy Pydantic datetime parsing
             for field in ("gazette_date", "effective_date", "old_date_of_birth", "new_date_of_birth"):
                 if result.get(field) == "":
@@ -356,9 +405,10 @@ async def unified_persons_search(
         return UnifiedSearchResponse(
             results=response_results,
             total=total,
-            page=1,  # Always return page 1 since we're returning all results
-            limit=total,  # Return all results
-            total_pages=1  # Single page with all results
+            page=page,
+            limit=limit,
+            total_pages=total_pages,
+            source_counts=source_counts,
         )
         
     except Exception as e:
@@ -368,7 +418,7 @@ async def unified_persons_search(
 
 @router.get("/{source_type}/{entry_id}", response_model=Dict[str, Any])
 async def get_entry_details(
-    source_type: Literal["change_of_name", "correction_of_place_of_birth", "correction_of_date_of_birth", "marriage_officer"],
+    source_type: Literal["change_of_name", "correction_of_place_of_birth", "correction_of_date_of_birth", "marriage_officer", "judgment"],
     entry_id: int,
     db: Session = Depends(get_db)
 ):
@@ -459,6 +509,26 @@ async def get_entry_details(
                 "gazette_date": _safe_iso(entry.gazette_date) if entry.gazette_date else None,
                 "page_number": entry.page_number,
                 "source_details": entry.source_details,
+            }
+        elif source_type == "judgment":
+            entry = db.query(ReportedCases).filter(ReportedCases.id == entry_id).first()
+            if not entry:
+                raise HTTPException(status_code=404, detail="Entry not found")
+            return {
+                "id": entry.id,
+                "source_type": "judgment",
+                "data_source": "Judgments & Rulings",
+                "title": entry.title,
+                "suit_reference_number": entry.suit_reference_number or entry.citation,
+                "date": _safe_iso(entry.date) if entry.date else None,
+                "court_type": entry.court_type,
+                "court_division": entry.court_division,
+                "case_progress": entry.case_progress or entry.status,
+                "protagonist": entry.protagonist,
+                "antagonist": entry.antagonist,
+                "presiding_judge": entry.presiding_judge,
+                "area_of_law": entry.area_of_law,
+                "case_summary": entry.case_summary,
             }
         else:
             raise HTTPException(status_code=400, detail="Invalid source type")

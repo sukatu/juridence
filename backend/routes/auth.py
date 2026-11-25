@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
@@ -10,15 +10,73 @@ from database import get_db
 from models.user import User, UserRole, UserStatus
 from schemas.user import (
     UserCreate, UserLogin, UserResponse, PasswordChange, 
-    PasswordResetRequest, PasswordReset, GoogleAuth, EmailVerification
+    PasswordResetRequest, PasswordReset, GoogleAuth, EmailVerification,
+    RefreshTokenRequest, LogoutRequest
 )
 from auth import (
-    authenticate_user, create_user_token, get_current_user,
-    get_password_hash, verify_password, verify_google_token
+    authenticate_user, create_user_token, get_current_admin_user, get_current_user,
+    generate_refresh_token, get_password_hash, hash_refresh_token,
+    verify_password, verify_google_token
 )
+from config import settings
+from models.security import LoginSession
 from services.email_service import send_verification_email, send_password_reset_email
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+REFRESH_COOKIE_NAME = "juridence_refresh"
+REFRESH_COOKIE_PATH = "/api/auth"
+
+
+def _session_expiry(remember_me: bool) -> datetime:
+    if remember_me:
+        return datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+    return datetime.utcnow() + timedelta(hours=settings.session_token_expire_hours)
+
+
+def _now_for(value: datetime) -> datetime:
+    return datetime.now(value.tzinfo) if value.tzinfo else datetime.utcnow()
+
+
+def _set_refresh_cookie(response: Response, token: str, expires_at: datetime, remember_me: bool) -> None:
+    max_age = max(0, int((expires_at - _now_for(expires_at)).total_seconds())) if remember_me else None
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=REFRESH_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+        httponly=True,
+        secure=not settings.debug,
+        samesite="lax",
+    )
+
+
+def _create_login_session(db: Session, user: User, request: Request, remember_me: bool):
+    refresh_token = generate_refresh_token()
+    expires_at = _session_expiry(remember_me)
+    user_agent = request.headers.get("user-agent", "")
+    session = LoginSession(
+        user_id=user.id,
+        session_token=secrets.token_urlsafe(32),
+        refresh_token=hash_refresh_token(refresh_token),
+        ip_address=request.client.host if request.client else None,
+        user_agent=user_agent or None,
+        is_mobile=any(marker in user_agent.lower() for marker in ("mobile", "android", "iphone", "ipad")),
+        expires_at=expires_at,
+    )
+    db.add(session)
+    db.flush()
+    return session, refresh_token, expires_at
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
@@ -91,7 +149,12 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @router.post("/login")
-async def login(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login(
+    login_data: UserLogin,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     """Login user with email and password."""
     user = authenticate_user(db, login_data.email, login_data.password)
     if not user:
@@ -107,12 +170,16 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
             detail=f"Account is {user.status.value}. Please verify your email or contact support."
         )
     
-    # Update last login
+    # Update last login and create a revocable browser session.
     user.last_login = datetime.utcnow()
+    login_session, refresh_token, expires_at = _create_login_session(
+        db, user, request, login_data.remember_me
+    )
     db.commit()
     
     # Create access token
-    access_token = create_user_token(user)
+    access_token = create_user_token(user, login_session.id)
+    _set_refresh_cookie(response, refresh_token, expires_at, login_data.remember_me)
     
     return {
         "access_token": access_token,
@@ -121,7 +188,12 @@ async def login(login_data: UserLogin, db: Session = Depends(get_db)):
     }
 
 @router.post("/google")
-async def google_auth(google_data: GoogleAuth, db: Session = Depends(get_db)):
+async def google_auth(
+    google_data: GoogleAuth,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
     """Login/Register with Google OAuth."""
     google_user_info = verify_google_token(google_data.google_token)
     if not google_user_info:
@@ -162,15 +234,62 @@ async def google_auth(google_data: GoogleAuth, db: Session = Depends(get_db)):
     
     # Update last login
     user.last_login = datetime.utcnow()
+    login_session, refresh_token, expires_at = _create_login_session(
+        db, user, request, google_data.remember_me
+    )
     db.commit()
     
     # Create access token
-    access_token = create_user_token(user)
+    access_token = create_user_token(user, login_session.id)
+    _set_refresh_cookie(response, refresh_token, expires_at, google_data.remember_me)
     
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user": UserResponse.from_orm(user)
+    }
+
+
+@router.post("/refresh")
+async def refresh_session(
+    request: Request,
+    response: Response,
+    refresh_data: Optional[RefreshTokenRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """Issue a fresh access token for an active browser session."""
+    refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not refresh_token and refresh_data:
+        refresh_token = refresh_data.refresh_token
+    if not refresh_token:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has expired")
+
+    login_session = db.query(LoginSession).filter(
+        LoginSession.refresh_token == hash_refresh_token(refresh_token),
+        LoginSession.is_active == True,
+        LoginSession.expires_at > datetime.utcnow(),
+    ).first()
+    if not login_session:
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session has expired")
+
+    user = db.query(User).filter(User.id == login_session.user_id).first()
+    if not user or user.status != UserStatus.ACTIVE:
+        login_session.is_active = False
+        db.commit()
+        _clear_refresh_cookie(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is not active")
+
+    login_session.last_activity = datetime.utcnow()
+    db.commit()
+    remember_me = (login_session.expires_at - _now_for(login_session.expires_at)) > timedelta(hours=24)
+    _set_refresh_cookie(response, refresh_token, login_session.expires_at, remember_me)
+    return {
+        "access_token": create_user_token(user, login_session.id),
+        "token_type": "bearer",
+        "expires_in": settings.access_token_expire_minutes * 60,
+        "user": UserResponse.from_orm(user),
     }
 
 @router.post("/forgot-password")
@@ -212,6 +331,10 @@ async def reset_password(reset_data: PasswordReset, db: Session = Depends(get_db
     user.hashed_password = get_password_hash(reset_data.new_password)
     user.reset_token = None
     user.reset_token_expires = None
+    db.query(LoginSession).filter(
+        LoginSession.user_id == user.id,
+        LoginSession.is_active == True,
+    ).update({LoginSession.is_active: False}, synchronize_session=False)
     db.commit()
     
     return {"message": "Password reset successfully"}
@@ -236,6 +359,10 @@ async def change_password(
         )
     
     current_user.hashed_password = get_password_hash(password_data.new_password)
+    db.query(LoginSession).filter(
+        LoginSession.user_id == current_user.id,
+        LoginSession.is_active == True,
+    ).update({LoginSession.is_active: False}, synchronize_session=False)
     db.commit()
     
     return {"message": "Password changed successfully"}
@@ -322,7 +449,11 @@ async def resend_verification_code(request: PasswordResetRequest, db: Session = 
     return {"message": "If the email exists, a verification code has been sent"}
 
 @router.get("/test/verification-code/{email}")
-async def get_verification_code(email: str, db: Session = Depends(get_db)):
+async def get_verification_code(
+    email: str,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
     """
     Testing endpoint to retrieve verification code.
     This should only be used in development/testing environments.
@@ -351,6 +482,24 @@ async def get_verification_code(email: str, db: Session = Depends(get_db)):
     }
 
 @router.post("/logout")
-async def logout(current_user: User = Depends(get_current_user)):
-    """Logout user (client should discard token)."""
+async def logout(
+    request: Request,
+    response: Response,
+    logout_data: Optional[LogoutRequest] = None,
+    db: Session = Depends(get_db),
+):
+    """Revoke the current refresh session and clear its browser cookie."""
+    refresh_token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not refresh_token and logout_data:
+        refresh_token = logout_data.refresh_token
+    if refresh_token:
+        login_session = db.query(LoginSession).filter(
+            LoginSession.refresh_token == hash_refresh_token(refresh_token),
+            LoginSession.is_active == True,
+        ).first()
+        if login_session:
+            login_session.is_active = False
+            login_session.last_activity = datetime.utcnow()
+            db.commit()
+    _clear_refresh_cookie(response)
     return {"message": "Logged out successfully"}

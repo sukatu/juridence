@@ -70,8 +70,13 @@ async def search_companies(
     if query:
         search_filter = or_(
             Companies.name.ilike(f"%{query}%"),
+            Companies.former_name.ilike(f"%{query}%"),
             Companies.short_name.ilike(f"%{query}%"),
+            Companies.registration_number.ilike(f"%{query}%"),
+            Companies.tax_identification_number.ilike(f"%{query}%"),
+            Companies.tin_number.ilike(f"%{query}%"),
             Companies.industry.ilike(f"%{query}%"),
+            Companies.nature_of_business.ilike(f"%{query}%"),
             Companies.description.ilike(f"%{query}%")
         )
         db_query = db_query.filter(search_filter)
@@ -81,7 +86,7 @@ async def search_companies(
     
     # Apply pagination
     offset = (page - 1) * limit
-    companies = db_query.offset(offset).limit(limit).all()
+    companies = db_query.order_by(Companies.name.asc()).offset(offset).limit(limit).all()
     
     # Add analytics data to each company
     for company in companies:
@@ -124,13 +129,6 @@ async def get_company(
     
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
-    
-    # Update search count and last searched
-    if company.search_count is None:
-        company.search_count = 0
-    company.search_count += 1
-    company.last_searched = func.now()
-    db.commit()
     
     return company
 

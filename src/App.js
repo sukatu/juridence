@@ -18,8 +18,6 @@ import BanksResults from './pages/BanksResults';
 import InsuranceResults from './pages/InsuranceResults';
 import CompaniesResults from './pages/CompaniesResults';
 import SearchResults from './pages/SearchResults';
-import Signup from './pages/Signup';
-import Onboarding from './pages/Onboarding';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -52,10 +50,35 @@ import SelectRole from './pages/SelectRole';
 import CreateAccountOnboard from './pages/CreateAccountOnboard';
 import VerifyAccount from './pages/VerifyAccount';
 import VerifySuccess from './pages/VerifySuccess';
+import AuthGuard from './components/AuthGuard';
+import { ensureAuthenticated } from './utils/api';
+
+const protectedPage = (page) => <AuthGuard>{page}</AuthGuard>;
 
 function AppContent() {
   const location = useLocation();
   const isHomePage = location.pathname === '/';
+
+  React.useEffect(() => {
+    const maintainSession = () => {
+      if (localStorage.getItem('isAuthenticated') === 'true') {
+        ensureAuthenticated(5 * 60);
+      }
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') maintainSession();
+    };
+
+    maintainSession();
+    const interval = window.setInterval(maintainSession, 5 * 60 * 1000);
+    window.addEventListener('focus', maintainSession);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', maintainSession);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
 
   // Pages that should not show header or footer
   const onboardingPages = [
@@ -65,7 +88,8 @@ function AppContent() {
     '/verify-success',
     '/login',
     '/signup',
-    '/forgot-password'
+    '/forgot-password',
+    '/reset-password'
   ];
 
   // Pages without header and footer (full-screen pages)
@@ -75,10 +99,11 @@ function AppContent() {
 
   // Check if current route is an admin, registrar, or corporate client route
   const isAdminRoute = location.pathname.startsWith('/admin');
+  const isWorkspaceRoute = location.pathname.startsWith('/workspace');
   const isRegistrarRoute = location.pathname.startsWith('/registrar');
   const isCorporateRoute = location.pathname.startsWith('/corporate');
 
-  const shouldShowHeaderFooter = !isHomePage && !onboardingPages.includes(location.pathname) && !fullScreenPages.includes(location.pathname) && !isAdminRoute && !isRegistrarRoute && !isCorporateRoute;
+  const shouldShowHeaderFooter = !isHomePage && !onboardingPages.includes(location.pathname) && !fullScreenPages.includes(location.pathname) && !isAdminRoute && !isWorkspaceRoute && !isRegistrarRoute && !isCorporateRoute;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors duration-200">
@@ -117,16 +142,17 @@ function AppContent() {
               <Route path="/companies" element={<Companies />} />
               <Route path="/company-details/:id" element={<CompanyDetail />} />
               <Route path="/company-profile/:id" element={<CompanyProfile />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/notifications" element={<Notifications />} />
-              <Route path="/admin" element={<AdminDashboard />} />
-              <Route path="/registrar" element={<CourtRegistrarDashboard />} />
-              <Route path="/corporate" element={<CorporateClientDashboard />} />
-              <Route path="/admin/employees" element={<EmployeeManagement />} />
-              <Route path="/admin/employees/:id" element={<EmployeeProfile />} />
+              <Route path="/settings" element={protectedPage(<Settings />)} />
+              <Route path="/notifications" element={protectedPage(<Notifications />)} />
+              <Route path="/admin" element={protectedPage(<AdminDashboard />)} />
+              <Route path="/workspace" element={protectedPage(<AdminDashboard workspaceMode />)} />
+              <Route path="/registrar" element={protectedPage(<CourtRegistrarDashboard />)} />
+              <Route path="/corporate" element={protectedPage(<CorporateClientDashboard />)} />
+              <Route path="/admin/employees" element={protectedPage(<EmployeeManagement />)} />
+              <Route path="/admin/employees/:id" element={protectedPage(<EmployeeProfile />)} />
               <Route path="/employee/:id" element={<PublicEmployeeProfile />} />
-              <Route path="/gazette" element={<GazetteManagement />} />
-              <Route path="/gazette-ai-search" element={<GazetteAISearchPage />} />
+              <Route path="/gazette" element={protectedPage(<GazetteManagement />)} />
+              <Route path="/gazette-ai-search" element={protectedPage(<GazetteAISearchPage />)} />
               <Route path="/subscribe" element={<SimpleSubscribe />} />
               <Route path="/subscribe-full" element={<Subscribe />} />
               <Route path="/justice-locator" element={<JusticeLocator />} />

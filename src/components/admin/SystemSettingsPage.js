@@ -1,948 +1,275 @@
-import React, { useState, useEffect, useRef } from 'react';
-import IntegrationConfigDrawer from './IntegrationConfigDrawer';
-import AdminHeader from './AdminHeader';
-import { apiGet } from '../../utils/api';
-import { Phone, Globe, ChevronDown, ChevronUp, Camera, Info, MoreVertical, Plus, Mail, Plug, HardDrive, Database, Folder, MessageSquare, Cloud, CheckCircle, Circle, Eye, EyeOff } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Bell,
+  Camera,
+  Check,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Globe2,
+  KeyRound,
+  Loader2,
+  LockKeyhole,
+  Mail,
+  Monitor,
+  Save,
+  Settings2,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react';
+import { apiGet, apiPost, apiPut, apiUpload } from '../../utils/api';
 
-const SystemSettingsPage = ({ userInfo, onNavigate, onLogout }) => {
+const PREFERENCE_KEY = 'juridence_workspace_preferences';
+const NOTIFICATION_KEY = 'juridence_notification_preferences';
+
+const readStored = (key, fallback) => {
+  try { return { ...fallback, ...JSON.parse(localStorage.getItem(key) || '{}') }; } catch { return fallback; }
+};
+
+const tabs = [
+  ['profile', 'Profile', UserRound],
+  ['account-security', 'Account & security', ShieldCheck],
+  ['notifications', 'Notifications', Bell],
+  ['preferences', 'Preferences', Settings2],
+];
+
+const notificationItems = [
+  ['caseUpdates', 'New case updates', 'New pending or decided cases involving monitored entities.'],
+  ['gazetteUpdates', 'Registrar and Gazette updates', 'Corporate lifecycle and public-notice changes.'],
+  ['searchRequests', 'Screening completed', 'Completed single and batch screening requests.'],
+  ['errors', 'Processing errors', 'Failed imports, searches or report generation.'],
+  ['announcements', 'System announcements', 'Service updates and planned maintenance.'],
+  ['entityStatusChanges', 'Entity status changes', 'Risk or monitoring status changes.'],
+];
+
+const initialNotifications = {
+  inApp: true, email: true, caseUpdates: true, gazetteUpdates: true,
+  searchRequests: true, errors: true, announcements: true, entityStatusChanges: true,
+};
+
+const initialPreferences = {
+  language: 'English (Ghana)', timezone: 'Africa/Accra', dateFormat: 'DD/MM/YYYY',
+  timeFormat: '24-hour', defaultExport: 'PDF', resultDensity: 'Compact',
+};
+
+const Switch = ({ checked, onChange, label }) => (
+  <button type="button" className={`dd-settings-switch${checked ? ' is-on' : ''}`} role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}><span /></button>
+);
+
+const Segmented = ({ label, value, options, onChange }) => (
+  <div className="dd-settings-choice"><span>{label}</span><div>{options.map((option) => <button type="button" className={value === option ? 'is-active' : ''} onClick={() => onChange(option)} key={option}>{value === option && <Check size={12} />}{option}</button>)}</div></div>
+);
+
+const SystemSettingsPage = ({ userInfo, onNavigate }) => {
   const [activeTab, setActiveTab] = useState('profile');
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
-  const [showActiveSessions, setShowActiveSessions] = useState(false);
-  const [showEnable2FA, setShowEnable2FA] = useState(false);
-  const [showChange2FAMethod, setShowChange2FAMethod] = useState(false);
-  const [showDisable2FA, setShowDisable2FA] = useState(false);
-  const [selected2FAMethod, setSelected2FAMethod] = useState('pin');
-  const [selectedIntegration, setSelectedIntegration] = useState(null);
-  const [profileData, setProfileData] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone_number: '',
-    profile_picture: null
-  });
+  const [profile, setProfile] = useState({ first_name: '', last_name: '', email: '', phone_number: '', organization: '', job_title: '', profile_picture: null });
+  const [originalProfile, setOriginalProfile] = useState(null);
+  const [security, setSecurity] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [uploadingImage, setUploadingImage] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [passwords, setPasswords] = useState({ current_password: '', new_password: '', confirm_password: '' });
+  const [notifications, setNotifications] = useState(() => readStored(NOTIFICATION_KEY, initialNotifications));
+  const [preferences, setPreferences] = useState(() => readStored(PREFERENCE_KEY, initialPreferences));
+  const [twoFactorSetup, setTwoFactorSetup] = useState(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [disableTwoFactor, setDisableTwoFactor] = useState(false);
   const fileInputRef = useRef(null);
-  
-  // Notification settings
-  const [notificationChannels, setNotificationChannels] = useState({
-    inApp: true,
-    email: true
-  });
-  const [notificationPreferences, setNotificationPreferences] = useState({
-    caseUpdates: true,
-    gazetteUpdates: true,
-    searchRequests: true,
-    errors: true,
-    announcements: true,
-    entityStatusChanges: true
-  });
 
-  // Load user profile data
+  const showNotice = (type, message) => {
+    setNotice({ type, message });
+    window.setTimeout(() => setNotice(null), 3500);
+  };
+
+  const loadSecurity = async () => {
+    try { setSecurity(await apiGet('/workspace/security-summary')); } catch { setSecurity(null); }
+  };
+
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        setLoading(true);
-        
-        // Try to use userInfo prop first
-        if (userInfo && (userInfo.first_name || userInfo.email)) {
-          setProfileData({
-            first_name: userInfo.first_name || '',
-            last_name: userInfo.last_name || '',
-            email: userInfo.email || '',
-            phone_number: userInfo.phone_number || '',
-            profile_picture: userInfo.profile_picture || userInfo.avatar || null
-          });
-          setLoading(false);
-          return;
-        }
-        
-        // Try localStorage as fallback
-        try {
-          const userDataStr = localStorage.getItem('userData');
-          if (userDataStr) {
-            const userData = JSON.parse(userDataStr);
-            if (userData && (userData.first_name || userData.email)) {
-              setProfileData({
-                first_name: userData.first_name || '',
-                last_name: userData.last_name || '',
-                email: userData.email || '',
-                phone_number: userData.phone_number || '',
-                profile_picture: userData.profile_picture || userData.avatar || null
-              });
-              setLoading(false);
-              return;
-            }
-          }
-        } catch (storageError) {
-          console.error('Error reading from localStorage:', storageError);
-        }
-        
-        // Fetch from API
-        const data = await apiGet('/profile/me');
-        setProfileData({
-          first_name: data.first_name || '',
-          last_name: data.last_name || '',
-          email: data.email || '',
-          phone_number: data.phone_number || '',
-          profile_picture: data.profile_picture || data.avatar || null
-        });
-      } catch (err) {
-        console.error('Error loading profile:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    loadProfile();
+    let current = true;
+    const fallback = userInfo || (() => { try { return JSON.parse(localStorage.getItem('userData') || '{}'); } catch { return {}; } })();
+    Promise.allSettled([apiGet('/profile/me'), apiGet('/workspace/security-summary')]).then(([profileResult, securityResult]) => {
+      if (!current) return;
+      const data = profileResult.status === 'fulfilled' ? profileResult.value : fallback;
+      const next = {
+        first_name: data.first_name || '', last_name: data.last_name || '', email: data.email || '',
+        phone_number: data.phone_number || '', organization: data.organization || data.organization_name || '',
+        job_title: data.job_title || '', profile_picture: data.profile_picture || data.avatar || null,
+      };
+      setProfile(next);
+      setOriginalProfile(next);
+      setNotifications((stored) => ({ ...stored, email: data.email_notifications ?? stored.email }));
+      setPreferences((stored) => ({
+        ...stored,
+        language: data.language === 'en' ? 'English (Ghana)' : stored.language,
+        timezone: data.timezone && data.timezone !== 'UTC' ? data.timezone : stored.timezone,
+      }));
+      if (securityResult.status === 'fulfilled') setSecurity(securityResult.value);
+    }).finally(() => { if (current) setLoading(false); });
+    return () => { current = false; };
   }, [userInfo]);
 
-  // Get user display name
-  const getUserName = () => {
-    if (profileData.first_name && profileData.last_name) {
-      return `${profileData.first_name} ${profileData.last_name}`;
-    }
-    if (profileData.first_name) {
-      return profileData.first_name;
-    }
-    if (userInfo?.name) {
-      return userInfo.name;
-    }
-    return 'User';
-  };
+  useEffect(() => { localStorage.setItem(NOTIFICATION_KEY, JSON.stringify(notifications)); }, [notifications]);
+  useEffect(() => { localStorage.setItem(PREFERENCE_KEY, JSON.stringify(preferences)); }, [preferences]);
 
-  // Get profile picture URL (matches AdminHeader logic exactly)
-  const getProfilePicture = () => {
-    // Check userInfo first (like AdminHeader does)
-    let profilePic = userInfo?.avatar || userInfo?.profile_picture;
-    
-    // If not in userInfo, check profileData
-    if (!profilePic) {
-      profilePic = profileData.profile_picture || profileData.avatar;
-    }
-    
-    // Return the profile picture path directly (AdminHeader uses it as-is)
-    // The path should already be in the correct format from the backend
-    return profilePic || "/images/image.png";
-  };
+  const displayName = useMemo(() => [profile.first_name, profile.last_name].filter(Boolean).join(' ') || userInfo?.name || 'Workspace user', [profile.first_name, profile.last_name, userInfo?.name]);
+  const profileImage = profile.profile_picture || userInfo?.avatar || '/images/image.png';
+  const isDirty = originalProfile && ['first_name', 'last_name', 'phone_number', 'job_title'].some((field) => profile[field] !== originalProfile[field]);
 
-  // Handle profile picture upload
-  const handleEditProfilePicture = () => {
-    fileInputRef.current?.click();
-  };
+  const updateProfile = (field, value) => setProfile((current) => ({ ...current, [field]: value }));
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
-      return;
-    }
-
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB');
-      return;
-    }
-
+  const saveProfile = async () => {
+    setSaving(true);
     try {
-      setUploadingImage(true);
-      const token = localStorage.getItem('accessToken');
-      
-      if (!token) {
-        throw new Error('No authentication token found');
-      }
-      
+      const payload = {
+        first_name: profile.first_name,
+        last_name: profile.last_name,
+        phone_number: profile.phone_number || null,
+        job_title: profile.job_title || null,
+      };
+      const updated = await apiPut('/profile/me', payload);
+      const next = { ...profile, ...updated };
+      setProfile(next);
+      setOriginalProfile(next);
+      const stored = JSON.parse(localStorage.getItem('userData') || '{}');
+      localStorage.setItem('userData', JSON.stringify({ ...stored, ...updated }));
+      window.dispatchEvent(new CustomEvent('authStateChanged'));
+      showNotice('success', 'Profile settings saved.');
+    } catch (error) {
+      showNotice('error', error.message || 'Profile settings could not be saved.');
+    } finally { setSaving(false); }
+  };
+
+  const uploadAvatar = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      showNotice('error', 'Choose a JPG, PNG or WebP image smaller than 5 MB.');
+      event.target.value = '';
+      return;
+    }
+    setUploading(true);
+    try {
       const formData = new FormData();
       formData.append('file', file);
-
-      const response = await fetch('/api/profile/upload-avatar', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to upload avatar');
-      }
-
-      const data = await response.json();
-      
-      // Update profile data
-      setProfileData(prev => ({
-        ...prev,
-        profile_picture: data.profile_picture
-      }));
-      
-      // Update localStorage
-      try {
-        const currentUserData = JSON.parse(localStorage.getItem('userData') || '{}');
-        const updatedUserData = {
-          ...currentUserData,
-          profile_picture: data.profile_picture,
-          avatar: data.profile_picture
-        };
-        localStorage.setItem('userData', JSON.stringify(updatedUserData));
-        window.dispatchEvent(new CustomEvent('authStateChanged'));
-      } catch (storageError) {
-        console.error('Error updating localStorage:', storageError);
-      }
-    } catch (err) {
-      console.error('Upload error:', err);
-      alert('Failed to upload avatar: ' + err.message);
+      const data = await apiUpload('/profile/upload-avatar', formData);
+      updateProfile('profile_picture', data.profile_picture);
+      setOriginalProfile((current) => ({ ...current, profile_picture: data.profile_picture }));
+      const stored = JSON.parse(localStorage.getItem('userData') || '{}');
+      localStorage.setItem('userData', JSON.stringify({ ...stored, profile_picture: data.profile_picture, avatar: data.profile_picture }));
+      window.dispatchEvent(new CustomEvent('authStateChanged'));
+      showNotice('success', 'Profile photo updated.');
+    } catch (error) {
+      showNotice('error', error.message || 'Profile photo could not be uploaded.');
     } finally {
-      setUploadingImage(false);
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      setUploading(false);
+      event.target.value = '';
     }
   };
 
-  const tabs = [
-    { id: 'profile', label: 'Profile' },
-    { id: 'account-security', label: 'Account & Security' },
-    { id: 'notifications', label: 'Notifications' },
-    { id: 'preferences', label: 'Preferences' },
-    { id: 'integrations', label: 'Integrations' }
-  ];
+  const changePassword = async (event) => {
+    event.preventDefault();
+    if (passwords.new_password.length < 8 || passwords.new_password !== passwords.confirm_password) {
+      showNotice('error', passwords.new_password.length < 8 ? 'The new password must contain at least 8 characters.' : 'The new passwords do not match.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiPost('/security/change-password', passwords);
+      setPasswords({ current_password: '', new_password: '', confirm_password: '' });
+      setShowPassword(false);
+      await loadSecurity();
+      showNotice('success', 'Password changed successfully.');
+    } catch (error) {
+      showNotice('error', error.message || 'Password could not be changed.');
+    } finally { setSaving(false); }
+  };
 
-  return (
-    <div className="bg-[#F7F8FA] min-h-screen w-full">
-      {/* Header */}
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
+  const saveNotifications = async () => {
+    setSaving(true);
+    try {
+      await apiPut('/profile/me', { email_notifications: notifications.email });
+      showNotice('success', 'Notification settings saved.');
+    } catch (error) {
+      showNotice('error', error.message || 'Notification settings could not be saved.');
+    } finally { setSaving(false); }
+  };
 
-      {/* Main Content */}
-      <div className="px-6 w-full">
-        <div className="flex flex-col items-start w-full bg-white pt-4 pb-[137px] px-6 gap-6 rounded-lg">
-          {/* Page Title */}
-          <span className="text-[#040E1B] text-xl whitespace-nowrap">Settings</span>
+  const savePreferences = async () => {
+    setSaving(true);
+    try {
+      await apiPut('/profile/me', { language: 'en', timezone: preferences.timezone });
+      showNotice('success', 'Workspace preferences saved.');
+    } catch (error) {
+      showNotice('error', error.message || 'Preferences could not be saved.');
+    } finally { setSaving(false); }
+  };
 
-          {/* Settings Content */}
-          <div className="flex flex-col items-start w-full gap-6">
-            {/* Tabs */}
-            <div className="flex items-start p-1 gap-4">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex flex-col items-start pb-2 ${
-                    activeTab === tab.id ? 'border-b-2 border-[#022658]' : ''
-                  }`}
-                >
-                  <span
-                    className={`text-base whitespace-nowrap ${
-                      activeTab === tab.id ? 'text-[#022658] font-bold' : 'text-[#525866]'
-                    }`}
-                  >
-                    {tab.label}
-                  </span>
-                </button>
-              ))}
-            </div>
+  const beginTwoFactor = async () => {
+    setSaving(true);
+    try {
+      setTwoFactorSetup(await apiPost('/security/2fa/setup', { method: 'authenticator' }));
+      setVerificationCode('');
+    } catch (error) {
+      showNotice('error', error.message || 'Two-factor setup could not be started.');
+    } finally { setSaving(false); }
+  };
 
-            {/* Profile Tab Content */}
-            {activeTab === 'profile' && (
-              <>
-                {/* Section Title */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-xl whitespace-nowrap">Personal information</span>
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Update your photo and personal details here</span>
-                </div>
+  const verifyTwoFactor = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await apiPost('/security/2fa/verify', { method: 'authenticator', code: verificationCode });
+      setTwoFactorSetup(null);
+      setVerificationCode('');
+      await loadSecurity();
+      showNotice('success', 'Two-factor authentication enabled.');
+    } catch (error) {
+      showNotice('error', error.message || 'The verification code was not accepted.');
+    } finally { setSaving(false); }
+  };
 
-                {/* Content Layout */}
-                <div className="flex flex-col items-start w-full gap-8">
-                  {/* Profile Photo Section */}
-                  <div className="flex flex-col items-center gap-6">
-                    <div className="flex flex-col items-center gap-2">
-                      <img
-                        src={getProfilePicture()}
-                        alt={getUserName()}
-                        className="w-20 h-20 object-cover rounded-full flex-shrink-0"
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = "/images/image.png";
-                        }}
-                      />
-                      <span className="text-[#040E1B] text-xl font-bold whitespace-nowrap">{getUserName()}</span>
-                    </div>
-                    <div className="flex flex-col items-start gap-3">
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        accept="image/*"
-                        className="hidden"
-                      />
-                      <button 
-                        onClick={handleEditProfilePicture}
-                        disabled={uploadingImage}
-                        className="flex flex-col items-center bg-transparent text-left py-2 px-[59px] rounded-lg border-2 border-solid border-[#022658] hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
-                        style={{ boxShadow: '0px 4px 4px #050F1C1A' }}
-                      >
-                        <span className="text-[#022658] text-xs font-bold whitespace-nowrap">
-                          {uploadingImage ? 'Uploading...' : 'Edit'}
-                        </span>
-                      </button>
-                      <span className="text-[#525866] text-sm whitespace-nowrap">At least 256px x 256px</span>
-                    </div>
-                  </div>
+  const confirmDisableTwoFactor = async () => {
+    setSaving(true);
+    try {
+      await apiPost('/security/2fa/disable', {});
+      setDisableTwoFactor(false);
+      await loadSecurity();
+      showNotice('success', 'Two-factor authentication disabled.');
+    } catch (error) {
+      showNotice('error', error.message || 'Two-factor authentication could not be disabled.');
+    } finally { setSaving(false); }
+  };
 
-                  {/* Form Fields */}
-                  <div className="w-full">
-                    <div className="flex flex-col w-full mb-20 gap-6">
-                      {/* Name and Email Row */}
-                      <div className="flex items-start w-full gap-6">
-                        <div className="flex flex-col items-start flex-1 gap-2">
-                          <span className="text-[#040E1B] text-sm whitespace-nowrap">Name</span>
-                          <input
-                            type="text"
-                            value={getUserName()}
-                            readOnly
-                            className="w-full text-[#040E1B] bg-[#F7F8FA] text-base p-4 rounded-lg border-0 outline-none"
-                          />
-                        </div>
-                        <div className="flex flex-col items-start flex-1 gap-2">
-                          <span className="text-[#040E1B] text-sm whitespace-nowrap">Email</span>
-                          <input
-                            type="text"
-                            value={profileData.email || ''}
-                            readOnly
-                            className="w-full text-[#040E1B] bg-[#F7F8FA] text-base p-4 rounded-lg border-0 outline-none"
-                          />
-                        </div>
-                      </div>
+  return <main className="dd-settings-page">
+    <section className="dd-settings-heading"><div><h1>Settings <span>JUR.ADM.005</span></h1><p>Manage your personal workspace, account security and delivery preferences.</p></div><small>Personal configuration</small></section>
+    {notice && <div className={`dd-settings-notice is-${notice.type}`}>{notice.type === 'success' ? <Check size={15} /> : <ShieldCheck size={15} />}{notice.message}</div>}
+    <nav className="dd-settings-tabs" aria-label="Settings sections">{tabs.map(([id, label, Icon]) => <button type="button" className={activeTab === id ? 'is-active' : ''} onClick={() => setActiveTab(id)} key={id}><Icon size={15} />{label}</button>)}</nav>
 
-                      {/* Phone and Country Row */}
-                      <div className="flex items-start w-full gap-6">
-                        <div className="flex flex-col items-start flex-1 gap-2">
-                          <span className="text-[#040E1B] text-sm whitespace-nowrap">Phone</span>
-                          <div className="flex items-center w-full bg-[#F7F8FA] py-[13px] pl-4 rounded-lg">
-                            <Phone className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                            <span className="text-[#040E1B] text-base ml-3 whitespace-nowrap">{profileData.phone_number || 'Not set'}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-start flex-1 gap-2">
-                          <span className="text-[#040E1B] text-sm whitespace-nowrap">Country</span>
-                          <div className="flex justify-between items-center w-full bg-[#F7F8FA] pr-4 rounded-lg">
-                            <input
-                              type="text"
-                              placeholder="Ghana"
-                              className="flex-1 text-[#040E1B] bg-transparent text-base py-4 pl-4 mr-1 border-0 outline-none"
-                            />
-                            <Globe className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+    {activeTab === 'profile' && <section className="dd-settings-panel">
+      <header><div><h2>Personal information</h2><p>Update your photo and personal details.</p></div><span>{isDirty ? 'Unsaved changes' : 'Up to date'}</span></header>
+      {loading ? <div className="dd-loading-state"><Loader2 size={20} className="dd-spin" /> Loading profile</div> : <div className="dd-profile-settings-grid">
+        <aside className="dd-profile-photo-panel"><div className="dd-settings-avatar"><img src={profileImage} alt={displayName} onError={(event) => { event.currentTarget.src = '/images/image.png'; }} />{uploading && <span><Loader2 size={18} className="dd-spin" /></span>}</div><strong>{displayName}</strong><small>{profile.job_title || 'Workspace user'}</small><input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadAvatar} hidden /><button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}><Camera size={14} /> Change photo</button><p>JPG, PNG or WebP. Maximum 5 MB.</p></aside>
+        <div className="dd-settings-form"><div className="dd-settings-form-grid"><label><span>First name</span><input value={profile.first_name} onChange={(event) => updateProfile('first_name', event.target.value)} /></label><label><span>Last name</span><input value={profile.last_name} onChange={(event) => updateProfile('last_name', event.target.value)} /></label><label><span>Email address</span><input type="email" value={profile.email} readOnly aria-readonly="true" title="Contact a workspace administrator to change your sign-in email" /></label><label><span>Phone number</span><input type="tel" value={profile.phone_number} onChange={(event) => updateProfile('phone_number', event.target.value)} placeholder="Not set" /></label><label><span>Organisation</span><input value={profile.organization} readOnly aria-readonly="true" title="Organisation membership is managed by a workspace administrator" /></label><label><span>Job title</span><input value={profile.job_title} onChange={(event) => updateProfile('job_title', event.target.value)} placeholder="Workspace user" /></label></div><div className="dd-settings-actions"><button type="button" onClick={() => setProfile(originalProfile)} disabled={!isDirty}>Cancel</button><button type="button" className="is-primary" onClick={saveProfile} disabled={!isDirty || saving}>{saving ? <Loader2 size={14} className="dd-spin" /> : <Save size={14} />} Save changes</button></div></div>
+      </div>}
+    </section>}
 
-                    {/* Action Buttons */}
-                    <div className="flex items-start w-full gap-10">
-                      <button
-                        className="flex flex-col items-center flex-1 py-[18px] rounded-lg border-2 border-solid border-[#022658] hover:bg-gray-50 transition-colors"
-                        style={{ boxShadow: '0px 4px 4px #050F1C1A' }}
-                      >
-                        <span className="text-[#022658] text-base font-bold whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Cancel Changes</span>
-                      </button>
-                      <button
-                        className="flex flex-col items-center flex-1 py-[18px] rounded-lg border-4 border-solid border-[#0F284726] hover:opacity-90 transition-opacity"
-                        style={{ background: 'linear-gradient(180deg, #022658, #1A4983)' }}
-                      >
-                        <span className="text-white text-base font-bold whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Save Changes</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
+    {activeTab === 'account-security' && <div className="dd-settings-stack">
+      <section className="dd-settings-panel"><header><div><h2>Password</h2><p>Use a strong, unique password for this workspace.</p></div><span>{security?.has_password === false ? 'External sign-in' : 'Protected'}</span></header><div className="dd-security-row"><div className="dd-settings-icon"><KeyRound size={18} /></div><div><strong>Account password</strong><p>{security?.has_password === false ? 'This account signs in through an external identity provider.' : 'A successful change is recorded in the security audit trail.'}</p></div><button type="button" onClick={() => setShowPassword((value) => !value)} disabled={security?.has_password === false}>{showPassword ? 'Cancel' : 'Change password'} <ChevronDown size={14} /></button></div>{showPassword && <form className="dd-password-settings" onSubmit={changePassword}><label><span>Current password</span><div><input type={showPasswords ? 'text' : 'password'} value={passwords.current_password} onChange={(event) => setPasswords((current) => ({ ...current, current_password: event.target.value }))} required /><button type="button" onClick={() => setShowPasswords((value) => !value)} aria-label={showPasswords ? 'Hide passwords' : 'Show passwords'}>{showPasswords ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></label><label><span>New password</span><input type={showPasswords ? 'text' : 'password'} value={passwords.new_password} onChange={(event) => setPasswords((current) => ({ ...current, new_password: event.target.value }))} minLength="8" required /></label><label><span>Confirm new password</span><input type={showPasswords ? 'text' : 'password'} value={passwords.confirm_password} onChange={(event) => setPasswords((current) => ({ ...current, confirm_password: event.target.value }))} minLength="8" required /></label><div className="dd-settings-actions"><small>Minimum 8 characters.</small><button className="is-primary" disabled={saving}>{saving ? <Loader2 size={14} className="dd-spin" /> : <LockKeyhole size={14} />} Update password</button></div></form>}</section>
+      <section className="dd-settings-panel"><header><div><h2>Sign-in security</h2><p>Review account protection and active access.</p></div><span>{security?.security_score ?? 0}% security score</span></header><div className="dd-security-row"><div className="dd-settings-icon"><ShieldCheck size={18} /></div><div><strong>Two-factor authentication</strong><p>{security?.two_factor?.enabled ? `Enabled with ${security.two_factor.method || 'authenticator'}.` : 'Add an authenticator verification step when signing in.'}</p></div><span className={`dd-settings-status ${security?.two_factor?.enabled ? 'is-live' : 'is-review'}`}>{security?.two_factor?.enabled ? 'Enabled' : 'Not configured'}</span><button type="button" onClick={() => security?.two_factor?.enabled ? setDisableTwoFactor(true) : beginTwoFactor()} disabled={saving}>{security?.two_factor?.enabled ? 'Disable' : 'Configure'}</button></div><div className="dd-security-row"><div className="dd-settings-icon"><Monitor size={18} /></div><div><strong>Active sessions</strong><p>{security?.active_sessions?.length ? `${security.active_sessions.length} server-tracked session${security.active_sessions.length === 1 ? '' : 's'}.` : 'This browser is authenticated; no additional server sessions are recorded.'}</p></div><span className="dd-settings-status is-live">Current</span><button type="button" onClick={() => onNavigate?.('audit-logs')}>Review activity</button></div></section>
+    </div>}
 
-            {/* Account & Security Tab Content */}
-            {activeTab === 'account-security' && (
-              <div className="flex flex-col items-start w-full gap-6">
-                {/* Change Password */}
-                <button 
-                  onClick={() => setShowPasswordForm(!showPasswordForm)}
-                  className="flex items-center gap-[11px] cursor-pointer hover:opacity-70"
-                >
-                  <span className="text-[#040E1B] text-base whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Change Password</span>
-                  {showPasswordForm ? (
-                    <ChevronUp className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                  )}
-                </button>
+    {activeTab === 'notifications' && <section className="dd-settings-panel"><header><div><h2>Notifications</h2><p>Email delivery is saved to your account; event selections are stored on this browser.</p></div><button type="button" className="dd-settings-header-action" onClick={saveNotifications} disabled={saving}>{saving ? <Loader2 size={13} className="dd-spin" /> : <Save size={13} />} Save</button></header><div className="dd-notification-channels"><strong>Delivery channels</strong><label><Mail size={15} /> Email <Switch checked={notifications.email} label="Email notifications" onChange={(checked) => setNotifications((current) => ({ ...current, email: checked }))} /></label><label><Bell size={15} /> In-app <Switch checked={notifications.inApp} label="In-app notifications" onChange={(checked) => setNotifications((current) => ({ ...current, inApp: checked }))} /></label></div><div className="dd-settings-list">{notificationItems.map(([key, title, description]) => <div key={key}><div><strong>{title}</strong><p>{description}</p></div><Switch checked={notifications[key]} label={title} onChange={(checked) => setNotifications((current) => ({ ...current, [key]: checked }))} /></div>)}</div></section>}
 
-                {/* Change Password Form (when expanded) */}
-                {showPasswordForm && (
-                  <div className="flex flex-col w-full p-4 gap-10 rounded-lg border border-solid border-[#D4E1EA]">
-                    {/* Old and New Password Row */}
-                    <div className="flex items-start w-full gap-6">
-                      <div className="flex flex-col items-start flex-1 gap-2">
-                        <span className="text-[#040E1B] text-sm whitespace-nowrap">Old password</span>
-                        <div className="flex justify-between items-center w-full bg-[#F7F8FA] pr-4 rounded-lg">
-                          <input
-                            type="password"
-                            placeholder="#EricisanAdmin#"
-                            className="flex-1 text-[#040E1B] bg-transparent text-base py-4 pl-4 mr-1 border-0 outline-none"
-                          />
-                          <EyeOff className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-start flex-1 gap-2">
-                        <span className="text-[#040E1B] text-sm whitespace-nowrap">New password</span>
-                        <div className="flex justify-between items-center w-full bg-[#F7F8FA] pr-4 rounded-lg">
-                          <input
-                            type="password"
-                            placeholder="#EricisanAdmin001#"
-                            className="flex-1 text-[#040E1B] bg-transparent text-base py-4 pl-4 mr-1 border-0 outline-none"
-                          />
-                          <EyeOff className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                        </div>
-                        <div className="flex flex-col items-start gap-1">
-                          <span className="text-[#525866] text-xs whitespace-nowrap">Password must be at least 8 characters</span>
-                          <span className="text-[#525866] text-xs whitespace-nowrap">Password must include at least a character and number</span>
-                        </div>
-                      </div>
-                    </div>
+    {activeTab === 'preferences' && <section className="dd-settings-panel"><header><div><h2>Workspace preferences</h2><p>Language and time zone are saved to your account; display defaults are stored on this browser.</p></div><button type="button" className="dd-settings-header-action" onClick={savePreferences} disabled={saving}>{saving ? <Loader2 size={13} className="dd-spin" /> : <Save size={13} />} Save</button></header><div className="dd-preference-grid"><label><span>Language</span><div className="dd-settings-select"><Globe2 size={15} /><select value={preferences.language} onChange={(event) => setPreferences((current) => ({ ...current, language: event.target.value }))}><option>English (Ghana)</option><option>English (United Kingdom)</option></select><ChevronDown size={14} /></div></label><label><span>Time zone</span><div className="dd-settings-select"><Globe2 size={15} /><select value={preferences.timezone} onChange={(event) => setPreferences((current) => ({ ...current, timezone: event.target.value }))}><option>Africa/Accra</option><option>UTC</option></select><ChevronDown size={14} /></div></label><Segmented label="Date format" value={preferences.dateFormat} options={['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD']} onChange={(dateFormat) => setPreferences((current) => ({ ...current, dateFormat }))} /><Segmented label="Time format" value={preferences.timeFormat} options={['24-hour', '12-hour']} onChange={(timeFormat) => setPreferences((current) => ({ ...current, timeFormat }))} /><Segmented label="Default export" value={preferences.defaultExport} options={['PDF', 'Excel', 'CSV']} onChange={(defaultExport) => setPreferences((current) => ({ ...current, defaultExport }))} /><Segmented label="Result density" value={preferences.resultDensity} options={['Compact', 'Comfortable']} onChange={(resultDensity) => setPreferences((current) => ({ ...current, resultDensity }))} /></div></section>}
 
-                    {/* Action Buttons */}
-                    <div className="flex items-start w-full gap-10">
-                      <button
-                        onClick={() => setShowPasswordForm(false)}
-                        className="flex flex-col items-center flex-1 py-[18px] rounded-lg border-2 border-solid border-[#022658] hover:bg-gray-50 transition-colors"
-                        style={{ boxShadow: '0px 4px 4px #050F1C1A' }}
-                      >
-                        <span className="text-[#022658] text-base font-bold whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Cancel Changes</span>
-                      </button>
-                      <button
-                        className="flex flex-col items-center flex-1 py-[18px] rounded-lg border-4 border-solid border-[#0F284726] hover:opacity-90 transition-opacity"
-                        style={{ background: 'linear-gradient(180deg, #022658, #1A4983)' }}
-                      >
-                        <span className="text-white text-base font-bold whitespace-nowrap" style={{ fontFamily: 'Satoshi' }}>Save Changes</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
+    {twoFactorSetup && <div className="dd-settings-modal-backdrop" role="presentation"><section className="dd-settings-modal dd-two-factor-modal" role="dialog" aria-modal="true" aria-labelledby="two-factor-title"><header><div><p>Account security</p><h2 id="two-factor-title">Configure authenticator</h2></div><button type="button" onClick={() => setTwoFactorSetup(null)} aria-label="Close">×</button></header><form onSubmit={verifyTwoFactor}><div className="dd-two-factor-setup"><p>Scan the QR code in your authenticator app, then enter the six-digit code to finish.</p><img src={`data:image/png;base64,${twoFactorSetup.qr_code}`} alt="Authenticator QR code" /><label><span>Manual setup key</span><code>{twoFactorSetup.secret_key}</code></label><label><span>Verification code</span><input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required /></label></div><footer><button type="button" onClick={() => setTwoFactorSetup(null)}>Cancel</button><button type="submit" className="is-primary" disabled={saving || verificationCode.length !== 6}>{saving ? <Loader2 size={13} className="dd-spin" /> : <ShieldCheck size={13} />} Verify and enable</button></footer></form></section></div>}
 
-                {/* Active Sessions */}
-                <button 
-                  onClick={() => setShowActiveSessions(!showActiveSessions)}
-                  className="flex items-center gap-2.5 cursor-pointer hover:opacity-70"
-                >
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Active sessions</span>
-                  {showActiveSessions ? (
-                    <ChevronUp className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                  )}
-                </button>
-
-                {/* Active Sessions Details (when expanded) */}
-                {showActiveSessions && (
-                  <div className="flex flex-col items-start gap-2">
-                    <div className="flex items-center w-full pr-4 gap-1 rounded-lg border border-solid border-[#D4E1EA]">
-                      <div className="flex items-center py-[33px] pl-4">
-                        <span className="text-[#040E1B] text-base whitespace-nowrap">Currently logged in on:</span>
-                      </div>
-                      <div className="flex flex-col items-start py-4 gap-3 ml-auto">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-[#040E1B] text-base whitespace-nowrap">Chrome/Mac</span>
-                          <div className="w-[38px] h-[18px] bg-[#022658] rounded-full flex items-center justify-end px-0.5">
-                            <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-[11px]">
-                          <span className="text-[#040E1B] text-base whitespace-nowrap">Chrome/Windows</span>
-                          <div className="w-[38px] h-[18px] bg-[#022658] rounded-full flex items-center justify-end px-0.5">
-                            <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 2 Factor Authentication */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#525866] text-sm whitespace-nowrap">2 factor authentication</span>
-                  <div className="flex flex-col items-start p-4 gap-6 rounded-lg border border-solid border-[#D4E1EA]">
-                    {/* Enable 2FA */}
-                    <div className="flex flex-col items-start w-full gap-2">
-                      <button 
-                        onClick={() => setShowEnable2FA(!showEnable2FA)}
-                        className="flex items-center gap-[11px] hover:opacity-70 transition-opacity cursor-pointer"
-                      >
-                        <span className="text-[#040E1B] text-base whitespace-nowrap">Enable 2FA</span>
-                        {showEnable2FA ? (
-                          <ChevronUp className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                        )}
-                      </button>
-
-                      {/* Enable 2FA Form (when expanded) */}
-                      {showEnable2FA && (
-                        <div className="flex flex-col w-full bg-[#F7F8FA] p-4 gap-10 rounded-lg">
-                          {/* PIN Fields Row */}
-                          <div className="flex items-start w-full gap-6">
-                            <div className="flex flex-col items-start flex-1 gap-2">
-                              <span className="text-[#040E1B] text-sm whitespace-nowrap">Enter PIN</span>
-                              <div className="flex justify-between items-center w-full bg-white pr-4 rounded-lg">
-                                <input
-                                  type="password"
-                                  placeholder="987654"
-                                  className="flex-1 text-[#040E1B] bg-transparent text-base py-4 pl-4 mr-1 border-0 outline-none"
-                                />
-                                <EyeOff className="w-4 h-4 text-[#525866] flex-shrink-0 cursor-pointer" />
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-start flex-1 gap-2">
-                              <span className="text-[#040E1B] text-sm whitespace-nowrap">Confirm PIN</span>
-                              <div className="flex justify-between items-center w-full bg-white pr-4 rounded-lg">
-                                <input
-                                  type="password"
-                                  placeholder="987654"
-                                  className="flex-1 text-[#040E1B] bg-transparent text-base py-4 pl-4 mr-1 border-0 outline-none"
-                                />
-                                <EyeOff className="w-4 h-4 text-[#525866] flex-shrink-0 cursor-pointer" />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Action Buttons */}
-                          <div className="flex items-start w-full gap-10">
-                            <button
-                              onClick={() => setShowEnable2FA(false)}
-                              className="flex flex-col items-center flex-1 py-[18px] rounded-lg border-2 border-solid border-[#022658] hover:bg-gray-50 transition-colors"
-                              style={{ boxShadow: '0px 4px 4px #050F1C1A' }}
-                            >
-                              <span className="text-[#022658] text-base font-bold whitespace-nowrap">Cancel changes</span>
-                            </button>
-                            <button
-                              className="flex flex-col items-center flex-1 py-[18px] rounded-lg border-4 border-solid border-[#0F284726] hover:opacity-90 transition-opacity"
-                              style={{ background: 'linear-gradient(180deg, #022658, #1A4983)' }}
-                            >
-                              <span className="text-white text-base font-bold whitespace-nowrap">Save changes</span>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Change 2FA Method */}
-                    <div className="flex flex-col items-start gap-2">
-                      <button 
-                        onClick={() => setShowChange2FAMethod(!showChange2FAMethod)}
-                        className="flex items-center gap-[58px] hover:opacity-70 transition-opacity cursor-pointer"
-                      >
-                        <span className="text-[#040E1B] text-base whitespace-nowrap">Change 2FA method</span>
-                        {showChange2FAMethod ? (
-                          <ChevronUp className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                        )}
-                      </button>
-
-                      {/* 2FA Method Options (when expanded) */}
-                      {showChange2FAMethod && (
-                        <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                          {/* PIN Option */}
-                          <button 
-                            onClick={() => setSelected2FAMethod('pin')}
-                            className="flex items-center gap-3 hover:opacity-70 cursor-pointer"
-                          >
-                            <span className="text-[#040E1B] text-base whitespace-nowrap">PIN</span>
-                            {selected2FAMethod === 'pin' ? (
-                              <CheckCircle className="w-4 h-4 text-[#30AB40] flex-shrink-0" />
-                            ) : (
-                              <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                            )}
-                          </button>
-
-                          {/* Email OTP Option */}
-                          <button 
-                            onClick={() => setSelected2FAMethod('email')}
-                            className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer"
-                          >
-                            <span className="text-[#040E1B] text-base whitespace-nowrap">Email OTP</span>
-                            {selected2FAMethod === 'email' ? (
-                              <CheckCircle className="w-4 h-4 text-[#30AB40] flex-shrink-0" />
-                            ) : (
-                              <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                            )}
-                          </button>
-
-                          {/* Google Authenticator Option */}
-                          <button 
-                            onClick={() => setSelected2FAMethod('google')}
-                            className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer"
-                          >
-                            <span className="text-[#040E1B] text-base whitespace-nowrap">Google Authenticator</span>
-                            {selected2FAMethod === 'google' ? (
-                              <CheckCircle className="w-4 h-4 text-[#30AB40] flex-shrink-0" />
-                            ) : (
-                              <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                            )}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Disable 2FA */}
-                    <button 
-                      onClick={() => setShowDisable2FA(!showDisable2FA)}
-                      className="flex items-center hover:opacity-70 transition-opacity cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[121px] whitespace-nowrap">Disable 2FA</span>
-                      {showDisable2FA ? (
-                        <ChevronUp className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-                      )}
-                    </button>
-
-                    {/* Disable 2FA Form (when expanded) */}
-                    {showDisable2FA && (
-                      <div className="flex items-start w-full bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                        <div className="flex flex-col items-start flex-1 gap-2">
-                          <span className="text-[#040E1B] text-sm whitespace-nowrap">Enter Password</span>
-                          <div className="flex justify-between items-center w-full bg-white pr-4 rounded-lg">
-                            <input
-                              type="password"
-                              placeholder="#EricisanAdmin001#"
-                              className="flex-1 text-[#040E1B] bg-transparent text-base py-4 pl-4 mr-1 border-0 outline-none"
-                            />
-                            <EyeOff className="w-4 h-4 text-[#525866] flex-shrink-0 cursor-pointer" />
-                          </div>
-                        </div>
-                        <button
-                          className="flex flex-col items-center flex-1 py-[18px] mt-[23px] rounded-lg border-4 border-solid border-[#0F284726] hover:opacity-90 transition-opacity"
-                          style={{ background: 'linear-gradient(180deg, #022658, #1A4983)' }}
-                        >
-                          <span className="text-white text-base font-bold whitespace-nowrap">Disable</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Preferences Tab Content */}
-            {activeTab === 'preferences' && (
-              <div className="flex flex-col items-start gap-6">
-                {/* Language */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-sm whitespace-nowrap">Language</span>
-                  <button className="flex items-center bg-[#F7F8FA] text-left p-4 rounded-lg border-0 hover:bg-gray-100 transition-colors w-[490px]">
-                    <span className="text-[#040E1B] text-base mr-auto whitespace-nowrap">English (Default)</span>
-                    <ChevronDown className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                  </button>
-                </div>
-
-                {/* Data Retention Policy */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Data Retention Policy</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">3 months</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">6 months</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">12 months</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Backup Frequency */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Backup Frequency</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">2 weeks</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Monthly</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Date Format */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Date format</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">DD/MM/YYYY</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">MM/DD/YYYY</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">YYYY/MM/DD</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Time Format */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Time format</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">12-hour</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">24-hour</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Default Format */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Default format</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">PDF</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-3 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Excel</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">CSV</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Auto Recalculate Risk */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Auto recalculate risk</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Daily at midnight</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-2.5 hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Weekly on Mondays</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                    <button className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Monthly on the first</span>
-                      <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Integrations Tab Content */}
-            {activeTab === 'integrations' && (
-              <div className="flex flex-col w-full gap-6">
-                {/* All Connections Section */}
-                <div className="flex justify-between items-start w-full">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[#040E1B] text-base whitespace-nowrap">All Connections</span>
-                    <Info className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                  </div>
-                  {/* Gmail Connection */}
-                  <div className="flex justify-between items-start flex-1 ml-6 pb-4 border-b border-[#E5E8EC]">
-                    <div className="flex items-center gap-1">
-                      <Mail className="w-6 h-6 text-[#525866] flex-shrink-0" />
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Gmail</span>
-                    </div>
-                    <div className="flex flex-col items-start gap-2">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Status</span>
-                      <div className="flex items-center justify-center bg-[#30AB401A] py-1 px-4 rounded-lg">
-                        <span className="text-emerald-500 text-xs whitespace-nowrap">Connected</span>
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-start gap-2">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Connections</span>
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">4</span>
-                    </div>
-                    <div className="flex flex-col items-start gap-2">
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Last sync</span>
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">3 hours ago</span>
-                    </div>
-                    <MoreVertical className="w-4 h-4 text-[#525866] flex-shrink-0 cursor-pointer hover:opacity-70" />
-                  </div>
-                </div>
-
-                {/* Add Connections Section */}
-                <div className="flex flex-col w-full gap-6">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[#040E1B] text-base whitespace-nowrap">Add connections</span>
-                    <Plus className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                  </div>
-
-                  {/* Integration Options */}
-                  {[
-                    { name: 'Slack', icon: MessageSquare, description: 'Send watchlist alerts to team Slack channel' },
-                    { name: 'Google Drive', icon: HardDrive, description: 'Auto-save exported reports to company\'s shared drive and Backup all screening results to cloud folder' },
-                    { name: 'Salesforce', icon: Database, description: 'Push risk scores to loan application system and Sync company due diligence data with CRM' },
-                    { name: 'SharePoint', icon: Folder, description: 'Sync case documents to document management system and Auto-file court records in proper folders' }
-                  ].map((integration, idx) => {
-                    const IconComponent = integration.icon;
-                    return (
-                      <div key={idx} className="flex justify-between items-start w-full pb-4">
-                        <div className="flex items-center gap-1">
-                          <IconComponent className="w-6 h-6 text-[#525866] flex-shrink-0" />
-                          <span className="text-[#040E1B] text-base whitespace-nowrap">{integration.name}</span>
-                        </div>
-                        <div className="flex flex-col items-start flex-1 ml-6 gap-2">
-                          <span className="text-[#040E1B] text-base">{integration.description}</span>
-                          <button 
-                            onClick={() => setSelectedIntegration(integration)}
-                            className="flex items-center bg-transparent text-left py-2 px-4 gap-1 rounded-lg border border-solid border-[#F59E0B] hover:bg-orange-50 transition-colors"
-                          >
-                            <Plus className="w-4 h-4 text-[#F59E0B] flex-shrink-0" />
-                            <span className="text-[#F59E0B] text-base whitespace-nowrap">Add connection</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Notifications Tab Content */}
-            {activeTab === 'notifications' && (
-              <div className="flex flex-col items-start gap-6">
-                {/* Notification Channels */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#040E1B] text-base whitespace-nowrap">Notification Channels</span>
-                  <div className="flex items-start bg-[#F7F8FA] p-4 gap-6 rounded-lg">
-                    <button 
-                      onClick={() => setNotificationChannels(prev => ({ ...prev, inApp: !prev.inApp }))}
-                      className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">In-app</span>
-                      {notificationChannels.inApp ? (
-                        <CheckCircle className="w-4 h-4 text-[#30AB40] flex-shrink-0" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                      )}
-                    </button>
-                    <button 
-                      onClick={() => setNotificationChannels(prev => ({ ...prev, email: !prev.email }))}
-                      className="flex items-center gap-[11px] hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base whitespace-nowrap">Email</span>
-                      {notificationChannels.email ? (
-                        <CheckCircle className="w-4 h-4 text-[#30AB40] flex-shrink-0" />
-                      ) : (
-                        <Circle className="w-4 h-4 text-[#525866] flex-shrink-0" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Notify me on... */}
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-[#525866] text-xs whitespace-nowrap">Notify me on...</span>
-                  <div className="flex flex-col items-start gap-4">
-                    {/* New case updates */}
-                    <button
-                      onClick={() => setNotificationPreferences(prev => ({ ...prev, caseUpdates: !prev.caseUpdates }))}
-                      className="flex items-center hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[276px] whitespace-nowrap">New case updates</span>
-                      <div className={`w-[38px] h-[18px] rounded-full flex items-center ${notificationPreferences.caseUpdates ? 'bg-[#30AB40] justify-end' : 'bg-[#D4E1EA] justify-start'} px-0.5`}>
-                        <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                      </div>
-                    </button>
-
-                    {/* New gazette updates */}
-                    <button
-                      onClick={() => setNotificationPreferences(prev => ({ ...prev, gazetteUpdates: !prev.gazetteUpdates }))}
-                      className="flex items-center hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[257px] whitespace-nowrap">New gazette updates</span>
-                      <div className={`w-[38px] h-[18px] rounded-full flex items-center ${notificationPreferences.gazetteUpdates ? 'bg-[#30AB40] justify-end' : 'bg-[#D4E1EA] justify-start'} px-0.5`}>
-                        <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                      </div>
-                    </button>
-
-                    {/* New search request */}
-                    <button
-                      onClick={() => setNotificationPreferences(prev => ({ ...prev, searchRequests: !prev.searchRequests }))}
-                      className="flex items-center hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[266px] whitespace-nowrap">New search request</span>
-                      <div className={`w-[38px] h-[18px] rounded-full flex items-center ${notificationPreferences.searchRequests ? 'bg-[#30AB40] justify-end' : 'bg-[#D4E1EA] justify-start'} px-0.5`}>
-                        <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                      </div>
-                    </button>
-
-                    {/* Error occurs */}
-                    <button
-                      onClick={() => setNotificationPreferences(prev => ({ ...prev, errors: !prev.errors }))}
-                      className="flex items-center hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[319px] whitespace-nowrap">Error occurs</span>
-                      <div className={`w-[38px] h-[18px] rounded-full flex items-center ${notificationPreferences.errors ? 'bg-[#30AB40] justify-end' : 'bg-[#D4E1EA] justify-start'} px-0.5`}>
-                        <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                      </div>
-                    </button>
-
-                    {/* System announcements */}
-                    <button
-                      onClick={() => setNotificationPreferences(prev => ({ ...prev, announcements: !prev.announcements }))}
-                      className="flex items-center hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[237px] whitespace-nowrap">System announcements</span>
-                      <div className={`w-[38px] h-[18px] rounded-full flex items-center ${notificationPreferences.announcements ? 'bg-[#30AB40] justify-end' : 'bg-[#D4E1EA] justify-start'} px-0.5`}>
-                        <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                      </div>
-                    </button>
-
-                    {/* Change of all entities status */}
-                    <button
-                      onClick={() => setNotificationPreferences(prev => ({ ...prev, entityStatusChanges: !prev.entityStatusChanges }))}
-                      className="flex items-center hover:opacity-70 cursor-pointer"
-                    >
-                      <span className="text-[#040E1B] text-base mr-[212px] whitespace-nowrap">Change of all entities status</span>
-                      <div className={`w-[38px] h-[18px] rounded-full flex items-center ${notificationPreferences.entityStatusChanges ? 'bg-[#30AB40] justify-end' : 'bg-[#D4E1EA] justify-start'} px-0.5`}>
-                        <div className="w-[14px] h-[14px] bg-white rounded-full"></div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Integration Configuration Drawer */}
-      {selectedIntegration && (
-        <IntegrationConfigDrawer
-          integration={selectedIntegration}
-          onClose={() => setSelectedIntegration(null)}
-        />
-      )}
-    </div>
-  );
+    {disableTwoFactor && <div className="dd-settings-modal-backdrop" role="presentation"><section className="dd-settings-modal" role="dialog" aria-modal="true" aria-labelledby="disable-two-factor-title"><header><div><p>Account security</p><h2 id="disable-two-factor-title">Disable two-factor authentication?</h2></div><button type="button" onClick={() => setDisableTwoFactor(false)} aria-label="Close">×</button></header><div><p>This removes the additional authenticator check from future sign-ins. The change will be recorded in the security audit trail.</p></div><footer><button type="button" onClick={() => setDisableTwoFactor(false)}>Cancel</button><button type="button" className="is-primary" onClick={confirmDisableTwoFactor} disabled={saving}>{saving ? <Loader2 size={13} className="dd-spin" /> : <LockKeyhole size={13} />} Disable 2FA</button></footer></section></div>}
+  </main>;
 };
 
 export default SystemSettingsPage;
-

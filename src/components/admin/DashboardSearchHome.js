@@ -1,431 +1,764 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ArrowLeft,
-  ArrowRight,
-  Building2,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  Database,
-  FileSearch,
-  Landmark,
-  Loader2,
-  Search,
-  UserRound,
-  X,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { apiDelete, apiGet, apiPost } from '../../utils/api';
+import EntityRecordView from './EntityRecordView';
 
-import { apiGet } from '../../utils/api';
-import Button from '../Button';
-import AdminHeader from './AdminHeader';
-
-
-const formatNumber = (value) => Number(value || 0).toLocaleString();
-
-const formatDate = (value) => {
-  if (!value) return 'Date unavailable';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Date unavailable';
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
+const PAGE_SIZE = 10;
+const ENTITY_TYPES = [
+  ['all', 'All'],
+  ['company', 'Company / institution'],
+  ['individual', 'Individual'],
+];
+const DATABASES = [
+  ['all', 'All databases'],
+  ['cases', 'Pending cases'],
+  ['judgments', 'Judgments'],
+  ['strike', 'Intended strike-off'],
+  ['dissolved', 'Dissolved companies'],
+  ['winding', 'Winding up'],
+  ['liquidation', 'Liquidation'],
+  ['incorporation', 'Incorporation'],
+  ['name-change', 'Company name changes'],
+  ['cessation', 'Cessation of business'],
+];
+const LIFECYCLE_DATABASE_TYPES = {
+  strike: 'COMPANY_STRIKE_OFF_INTENTION',
+  dissolved: 'COMPANY_DISSOLUTION',
+  winding: 'COMPANY_WINDING_UP',
+  liquidation: 'COMPANY_LIQUIDATION',
+  incorporation: 'COMPANY_INCORPORATION',
+  'name-change': 'COMPANY_CHANGE_OF_NAME',
+  cessation: 'COMPANY_CESSATION_OF_BUSINESS',
 };
-
-const formatCourtType = (value) => {
-  const courtTypes = { H: 'High Court', HC: 'High Court', CA: 'Court of Appeal', SC: 'Supreme Court' };
-  return courtTypes[String(value || '').toUpperCase()] || value || 'Court not specified';
-};
-
-const statusVariant = (status) => {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized.includes('closed') || normalized.includes('granted') || normalized.includes('judgment')) return 'success';
-  if (normalized.includes('denied') || normalized.includes('dismissed') || normalized.includes('struck')) return 'danger';
-  if (normalized.includes('hearing') || normalized.includes('process')) return 'warning';
-  return 'info';
-};
-
-const badgeClasses = {
-  success: 'bg-[#30AB401A] text-[#188A27]',
-  danger: 'bg-[#EF44441A] text-[#DC2626]',
-  warning: 'bg-[#F36F261A] text-[#B45309]',
-  info: 'bg-[#3B82F61A] text-[#2563EB]',
-};
-
-const Badge = ({ variant = 'info', children }) => (
-  <span className={`inline-flex min-h-6 items-center rounded-full px-2.5 py-1 text-xs font-medium ${badgeClasses[variant] || badgeClasses.info}`}>
-    {children}
-  </span>
-);
-
+const PURPOSES = [
+  ['kyc', 'KYC / client onboarding'],
+  ['credit', 'Credit / lending assessment'],
+  ['mergers', 'Mergers & acquisitions'],
+  ['litigation', 'Litigation support'],
+  ['procurement', 'Procurement / vendor vetting'],
+  ['employment', 'Employment screening'],
+  ['other', 'Other legitimate purpose'],
+];
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-const getHighlightPatterns = (query) => {
-  const variants = new Set();
-  String(query || '').trim().split(/\s+/).filter(Boolean).forEach((token) => {
-    variants.add(token);
-    variants.add(token.replace(/(.)\1+/gi, '$1'));
-    if (token.length >= 4) {
-      [...token].forEach((character, index) => {
-        variants.add(`${token.slice(0, index)}${character}${token.slice(index)}`);
-      });
-    }
+const normalizeName = (value) => String(value || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+const compactName = (value) => normalizeName(value).replaceAll(' ', '');
+const nameMatchesQuery = (value, query) => {
+  const candidate = normalizeName(value);
+  const tokens = normalizeName(query).split(' ').filter(Boolean);
+  return Boolean(candidate) && tokens.length > 0 && tokens.every((token) => candidate.includes(token));
+};
+const plausibleBankAliases = (canonicalName, values) => {
+  const canonicalTokens = new Set(normalizeName(canonicalName).split(' ').filter(Boolean));
+  const allowedTokens = new Set([...canonicalTokens, 'BANK', 'GH', 'GHA', 'GHANA', 'LTD', 'LIMITED', 'PLC']);
+  return [...new Set(values || [])].filter((value) => {
+    const tokens = normalizeName(value).split(' ').filter(Boolean);
+    return tokens.length > 1 && tokens.length <= 7 && tokens.every((token) => allowedTokens.has(token));
   });
-  return [...variants].filter(Boolean).sort((left, right) => right.length - left.length).map(escapeRegExp);
+};
+const ORGANISATION_NAME = /\b(bank|insurance|assurance|limited|ltd|plc|company|enterprise|university|school|hospital|mining|mines|micro\s*finance|broadcasting|construction|properties)\b/i;
+const splitPendingPartyList = (caseTitle) => {
+  if (/\b(?:V|VS|VRS|VERSUS)\.?\s+/i.test(caseTitle)) return [caseTitle];
+  if (caseTitle.includes(',')) {
+    const parts = caseTitle.split(',').map((name) => name.trim()).filter(Boolean);
+    const isShortPartyList = parts.length <= 10
+      && parts.every((name) => name.length <= 120)
+      && !/\b(?:IN THE MATTER|SECTION|ACT\s+\d|ARBITRATION|PETITION)\b/i.test(caseTitle);
+    if (isShortPartyList) return parts;
+  }
+  for (const separator of [/\s+&\s+/, /\s*;\s*/]) {
+    const parts = caseTitle.split(separator).map((name) => name.trim()).filter(Boolean);
+    if (parts.length > 1 && parts.every((name) => name.length <= 120 && ORGANISATION_NAME.test(name))) return parts;
+  }
+  return [caseTitle];
+};
+const loadReturnEntity = () => {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem('juridence_return_entity') || 'null');
+    return stored?.entity || stored;
+  } catch { return null; }
+};
+const loadReturnTab = () => {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem('juridence_return_entity') || 'null');
+    return stored?.tab || (stored ? 'judgments' : 'summary');
+  } catch { return 'summary'; }
 };
 
-const HighlightedText = ({ text, query }) => {
-  const value = String(text || '');
-  const patterns = getHighlightPatterns(query);
-  if (!value || patterns.length === 0) return value;
-
-  const source = patterns.join('|');
-  const splitPattern = new RegExp(`(${source})`, 'gi');
-  const matchPattern = new RegExp(`^(?:${source})$`, 'i');
-
-  return value.split(splitPattern).map((part, index) => (
-    matchPattern.test(part)
-      ? <mark key={`${part}-${index}`} className="rounded-sm bg-[#ffe59a] px-0.5 text-[#17334a]">{part}</mark>
-      : <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>
-  ));
+const fetchAllPages = async (path, params, collectionKey, pageSize) => {
+  const firstPage = await apiGet(path, { ...params, page: 1, limit: pageSize });
+  const totalPages = Number(firstPage.total_pages || 1);
+  if (totalPages <= 1) return firstPage;
+  const remaining = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => apiGet(path, { ...params, page: index + 2, limit: pageSize })),
+  );
+  return {
+    ...firstPage,
+    [collectionKey]: [firstPage, ...remaining].flatMap((pageData) => pageData[collectionKey] || []),
+  };
 };
 
-const BankFilterCombobox = ({ sources = [], value, onChange }) => {
+const CompactSelect = ({ id, label, options, value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [filterQuery, setFilterQuery] = useState('');
   const containerRef = useRef(null);
-  const searchRef = useRef(null);
-  const selectedSource = sources.find((source) => String(source.id) === String(value));
-  const normalizedFilter = filterQuery.trim().toLowerCase();
-  const filteredSources = normalizedFilter
-    ? sources.filter((source) => source.name.toLowerCase().includes(normalizedFilter))
-    : sources;
+  const selectedLabel = options.find(([optionValue]) => optionValue === value)?.[1] || options[0]?.[1];
 
   useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (containerRef.current && !containerRef.current.contains(event.target)) setIsOpen(false);
+    const closeOnOutsideClick = (event) => {
+      if (!containerRef.current?.contains(event.target)) setIsOpen(false);
     };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
   }, []);
 
-  useEffect(() => {
-    if (isOpen) window.setTimeout(() => searchRef.current?.focus(), 0);
-    else setFilterQuery('');
-  }, [isOpen]);
-
-  const selectBank = (nextValue) => {
-    onChange(nextValue);
-    setIsOpen(false);
-    setFilterQuery('');
-  };
-
   return (
-    <div ref={containerRef} className="relative w-full sm:w-72">
-      <div className="flex min-h-11 items-center overflow-hidden rounded-lg border border-[#DDE1E6] bg-white p-0 transition-colors focus-within:border-[#022658]">
-        <button
-          type="button"
-          onClick={() => setIsOpen((open) => !open)}
-          className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent px-3.5 text-left text-sm font-medium text-[#050F1C]"
-          aria-haspopup="listbox"
-          aria-expanded={isOpen}
-        >
-          <Building2 size={16} className="shrink-0 text-[#525866]" />
-          <span className="min-w-0 flex-1 truncate">{selectedSource?.name || 'All indexed banks'}</span>
-          <ChevronDown size={16} className={`shrink-0 text-[#525866] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-        </button>
-        {selectedSource && (
-          <button
-            type="button"
-            onClick={() => selectBank('')}
-            className="mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#525866] hover:bg-[#F2F4F7] hover:text-[#050F1C]"
-            aria-label="Clear bank filter"
-            title="Clear bank filter"
-          >
-            <X size={15} />
-          </button>
-        )}
-      </div>
-
+    <div ref={containerRef} className={`dd-compact-select${isOpen ? ' is-open' : ''}`}>
+      <button
+        id={id}
+        type="button"
+        className="dd-select-trigger"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <span>{selectedLabel}</span>
+        <ChevronDown size={14} aria-hidden="true" />
+      </button>
       {isOpen && (
-        <div className="absolute right-0 z-40 mt-2 w-full min-w-[280px] overflow-hidden rounded-lg border border-[#DDE1E6] bg-white shadow-lg">
-          <div className="border-b border-[#E5E8EC] p-3">
-            <div className="flex h-10 items-center gap-2 rounded-lg border border-[#DDE1E6] bg-white px-3 focus-within:border-[#022658]">
-              <Search size={15} className="shrink-0 text-[#525866]" />
-              <input
-                ref={searchRef}
-                type="search"
-                value={filterQuery}
-                onChange={(event) => setFilterQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') setIsOpen(false);
-                  if (event.key === 'Enter' && filteredSources.length > 0) selectBank(String(filteredSources[0].id));
-                }}
-                placeholder="Search banks"
-                className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none focus:shadow-none focus-visible:outline-none"
-                aria-label="Search bank filters"
-              />
-            </div>
-          </div>
-
-          <div className="max-h-64 overflow-y-auto p-1.5" role="listbox" aria-label="Bank filters">
+        <div className="dd-select-menu" role="listbox" aria-label={label}>
+          {options.map(([optionValue, optionLabel]) => (
             <button
               type="button"
-              onClick={() => selectBank('')}
-              className="flex min-h-10 w-full items-center gap-3 rounded px-3 py-2 text-left text-sm text-[#050F1C] hover:bg-[#F7F9FC]"
               role="option"
-              aria-selected={!selectedSource}
+              aria-selected={optionValue === value}
+              className={optionValue === value ? 'is-selected' : ''}
+              key={optionValue}
+              onClick={() => {
+                onChange(optionValue);
+                setIsOpen(false);
+              }}
             >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[#022658]">{!selectedSource && <Check size={15} />}</span>
-              <span className="flex-1">All indexed banks</span>
+              <span>{optionLabel}</span>
+              {optionValue === value && <Check size={14} aria-hidden="true" />}
             </button>
-
-            {filteredSources.map((source) => {
-              const selected = String(source.id) === String(value);
-              return (
-                <button
-                  key={source.id}
-                  type="button"
-                  onClick={() => selectBank(String(source.id))}
-                  className={`flex min-h-10 w-full items-center gap-3 rounded px-3 py-2 text-left text-sm hover:bg-[#F7F9FC] ${selected ? 'bg-[#EAF2FF] text-[#022658]' : 'text-[#050F1C]'}`}
-                  role="option"
-                  aria-selected={selected}
-                >
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[#022658]">{selected && <Check size={15} />}</span>
-                  <span className="min-w-0 flex-1 truncate">{source.name}</span>
-                  <span className="text-xs text-[#829099]">{formatNumber(source.case_count)}</span>
-                </button>
-              );
-            })}
-
-            {filteredSources.length === 0 && (
-              <p className="px-3 py-5 text-center text-sm text-[#525866]">No bank matches “{filterQuery}”</p>
-            )}
-          </div>
+          ))}
         </div>
       )}
     </div>
   );
 };
 
-const DashboardSearchHome = ({ userInfo, onNavigate, onLogout }) => {
+const HighlightedText = ({ text, query }) => {
+  const value = String(text || '');
+  const tokens = String(query || '').trim().split(/\s+/).filter(Boolean).map(escapeRegExp);
+  if (!value || tokens.length === 0) return value;
+  const pattern = new RegExp(`(${tokens.join('|')})`, 'gi');
+  return value.split(pattern).map((part, index) => (
+    tokens.some((token) => new RegExp(`^${token}$`, 'i').test(part))
+      ? <mark key={`${part}-${index}`}>{part}</mark>
+      : <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>
+  ));
+};
+
+const ResultAliases = ({ aliases, query }) => {
+  const visible = (aliases || []).slice(0, 5);
+  if (!visible.length) return null;
+  return (
+    <small className="dd-result-aliases">
+      <b>Also:</b>{' '}
+      {visible.map((alias, index) => <React.Fragment key={alias}>{index > 0 && '; '}<HighlightedText text={alias} query={query} /></React.Fragment>)}
+      {(aliases || []).length > visible.length && ' …'}
+    </small>
+  );
+};
+
+const entityLabel = (type) => {
+  if (type === 'people') return 'Individual';
+  if (type === 'insurance') return 'Insurance';
+  return 'Company';
+};
+
+const riskLabel = (result, pendingCount) => {
+  const supplied = result.additional_info?.risk_level;
+  if (supplied) return supplied;
+  return pendingCount > 0 ? 'Elevated' : 'Standard';
+};
+
+const DashboardSearchHome = ({ userInfo, onNavigate }) => {
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
-  const [bankId, setBankId] = useState('');
-  const [stats, setStats] = useState({ indexed_parties: 0, pending_cases: 0, source_banks: 0, sources: [] });
-  const [results, setResults] = useState([]);
+  const [entityType, setEntityType] = useState('all');
+  const [database, setDatabase] = useState('all');
+  const [purpose, setPurpose] = useState('kyc');
+  const [sourceStats, setSourceStats] = useState({ sources: [] });
+  const [allResults, setAllResults] = useState([]);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [showPurposeHelp, setShowPurposeHelp] = useState(false);
   const [error, setError] = useState('');
-
-  const runSearch = useCallback(async (searchQuery, nextPage = 1, sourceBank = '') => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await apiGet('/dashboard-search/pending-cases', {
-        q: searchQuery,
-        page: nextPage,
-        limit: 10,
-        bank_id: sourceBank,
-      });
-      setResults(data.results || []);
-      setPage(data.page || nextPage);
-      setTotal(data.total || 0);
-      setTotalPages(data.total_pages || 0);
-    } catch (requestError) {
-      setResults([]);
-      setError(requestError.message || 'The case index could not be searched.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [selectedEntity, setSelectedEntity] = useState(loadReturnEntity);
+  const [activeEntityTab, setActiveEntityTab] = useState(loadReturnTab);
+  const [entityData, setEntityData] = useState({ pendingCases: [], pendingTotal: 0, judgments: [], judgmentTotal: 0, registryNotices: [], registryTotal: 0, profile: null });
+  const [entityLoading, setEntityLoading] = useState(false);
+  const [entityError, setEntityError] = useState('');
+  const [watchlist, setWatchlist] = useState({ isIn: false, id: null });
+  const [watchlistBusy, setWatchlistBusy] = useState(false);
+  const requestSequence = useRef(0);
+  const searchTimer = useRef(null);
+  const previousCriteria = useRef({ database: 'all', entityType: 'all' });
 
   useEffect(() => {
-    const loadLandingData = async () => {
-      try {
-        const statsData = await apiGet('/dashboard-search/stats');
-        setStats(statsData);
-      } catch (requestError) {
-        setError(requestError.message || 'Search coverage is unavailable.');
-      }
-    };
-    loadLandingData();
+    apiGet('/dashboard-search/stats')
+      .then(setSourceStats)
+      .catch(() => setSourceStats({ sources: [] }));
+    sessionStorage.removeItem('juridence_return_entity');
   }, []);
 
+  const sourceCountFor = useCallback((name) => {
+    const normalized = normalizeName(name);
+    const source = (sourceStats.sources || []).find((item) => {
+      const candidate = normalizeName(item.name);
+      return candidate === normalized || candidate.includes(normalized) || normalized.includes(candidate);
+    });
+    return Number(source?.case_count || 0);
+  }, [sourceStats.sources]);
+
+  const normalizeUnifiedResults = useCallback((items) => {
+    const deduplicated = new Map();
+    items.forEach((item) => {
+      const key = normalizeName(item.name);
+      const pending = item.type === 'people'
+        ? Number(item.additional_info?.unresolved_cases ?? item.additional_info?.case_count ?? 0)
+        : sourceCountFor(item.name);
+      const normalized = {
+        id: `${String(item.type || 'entity').slice(0, 2).toUpperCase()}-${String(item.id).padStart(6, '0')}`,
+        rawId: item.id,
+        name: item.name,
+        type: entityLabel(item.type),
+        sourceType: item.type,
+        watchlistType: item.type === 'people' ? 'person' : item.type === 'banks' ? 'bank' : item.type === 'insurance' ? 'insurance' : 'company',
+        detail: item.description,
+        aliases: item.additional_info?.aliases || [],
+        pending,
+        judgments: Number(item.additional_info?.resolved_cases || 0),
+        registryNotice: item.additional_info?.registry_notice || null,
+        risk: riskLabel(item, pending),
+      };
+      const existing = deduplicated.get(key);
+      if (!existing || (existing.sourceType === 'companies' && item.type === 'banks')) deduplicated.set(key, normalized);
+    });
+    return [...deduplicated.values()];
+  }, [sourceCountFor]);
+
+  const normalizePendingResults = useCallback((items, searchQuery) => {
+    const grouped = new Map();
+    items.forEach((item) => {
+      const sourceBankMatched = Boolean(item.matched_is_source_bank && item.source_bank_id);
+      const caseTitle = item.case_title || '';
+      const splitTitle = splitPendingPartyList(caseTitle);
+      const isPartyList = splitTitle.length > 1;
+      let candidateNames = sourceBankMatched
+        ? [item.source_bank]
+        : item.matched_party
+          ? [item.matched_party]
+          : isPartyList
+            ? splitTitle
+            : [caseTitle || 'Unnamed party'];
+      const queryMatchesSuit = compactName(item.suit_number).includes(compactName(searchQuery));
+      if (isPartyList && !queryMatchesSuit) {
+        candidateNames = candidateNames.filter((name) => nameMatchesQuery(name, searchQuery));
+      }
+
+      candidateNames.forEach((candidateName) => {
+        const candidateIsSourceBank = sourceBankMatched && compactName(candidateName) === compactName(item.source_bank);
+        const name = candidateIsSourceBank ? item.source_bank : candidateName;
+        const key = normalizeName(name);
+        if (!key) return;
+        const isOrganisation = ORGANISATION_NAME.test(name);
+        const existing = grouped.get(key) || {
+          id: candidateIsSourceBank ? `BA-${String(item.source_bank_id).padStart(6, '0')}` : `PC-${String(item.case_id).padStart(6, '0')}-${compactName(name).slice(0, 12)}`,
+          rawId: candidateIsSourceBank ? item.source_bank_id : undefined,
+          name,
+          type: candidateIsSourceBank || isOrganisation ? 'Company' : 'Individual',
+          sourceType: candidateIsSourceBank ? 'banks' : isOrganisation ? 'companies' : 'people',
+          watchlistType: candidateIsSourceBank ? 'bank' : isOrganisation ? 'company' : 'person',
+          detail: item.case_title,
+          aliases: candidateIsSourceBank ? plausibleBankAliases(item.source_bank, item.matched_parties) : [],
+          pending: 0,
+          judgments: 0,
+          registryNotice: null,
+          risk: 'Elevated',
+          isPendingParty: !candidateIsSourceBank,
+          sourceBankId: candidateIsSourceBank ? item.source_bank_id : undefined,
+          caseIds: new Set(),
+        };
+        existing.caseIds.add(item.case_id);
+        existing.pending = existing.caseIds.size;
+        if (candidateIsSourceBank) existing.aliases = [...new Set([...(existing.aliases || []), ...plausibleBankAliases(item.source_bank, item.matched_parties)])];
+        grouped.set(key, existing);
+      });
+    });
+    return [...grouped.values()].map(({ caseIds, ...result }) => result);
+  }, []);
+
+  const normalizeGazetteResults = useCallback((items, searchQuery) => items.filter((item) => [
+    item.current_name,
+    item.name_value,
+    item.old_name,
+    item.new_name,
+    item.title,
+  ].some((name) => nameMatchesQuery(name, searchQuery))).map((item) => {
+    const noticeType = String(item.gazette_type || '');
+    const isCompany = Boolean(item.company_id) || noticeType.startsWith('COMPANY_') || noticeType.startsWith('EXTERNAL_COMPANY_');
+    return {
+      id: `GN-${String(item.id).padStart(6, '0')}`,
+      name: item.current_name || item.name_value || item.title,
+      type: isCompany ? 'Company' : 'Individual',
+      sourceType: isCompany ? 'companies' : 'people',
+      detail: item.title,
+      pending: 0,
+      judgments: 0,
+      registryNotice: noticeType.replaceAll('_', ' '),
+      risk: 'Elevated',
+    };
+  }), []);
+
+  const normalizeLifecycleResults = useCallback((items) => items.map((item) => ({
+    id: `CL-${String(item.id).padStart(6, '0')}`,
+    name: item.company_name,
+    type: 'Company',
+    sourceType: 'companies',
+    detail: [item.notice_type?.replaceAll('_', ' '), item.registration_number].filter(Boolean).join(' · '),
+    aliases: [item.old_company_name, item.new_company_name].filter((name) => name && normalizeName(name) !== normalizeName(item.company_name)),
+    pending: 0,
+    judgments: 0,
+    registryNotice: String(item.notice_type || '').replaceAll('_', ' '),
+    risk: item.notice_type === 'COMPANY_INCORPORATION' || item.notice_type === 'COMPANY_CHANGE_OF_NAME' ? 'Standard' : 'Elevated',
+  })), []);
+
+  const mergeResults = useCallback((groups) => {
+    const merged = new Map();
+    const items = groups.flat();
+    const canonicalEntities = items.filter((item) => ['banks', 'insurance', 'companies'].includes(item.sourceType) && item.rawId);
+    const bankById = new Map(
+      canonicalEntities
+        .filter((item) => item.sourceType === 'banks')
+        .map((item) => [Number(item.rawId), item]),
+    );
+    const entityByAlias = new Map();
+    canonicalEntities.forEach((entity) => [entity.name, ...(entity.aliases || [])]
+      .forEach((name) => {
+        entityByAlias.set(normalizeName(name), entity);
+        entityByAlias.set(compactName(name), entity);
+      }));
+
+    items.forEach((item) => {
+      const key = normalizeName(item.name);
+      const canonicalEntity = (item.isPendingParty || !item.rawId)
+        ? (entityByAlias.get(key) || entityByAlias.get(compactName(item.name)) || bankById.get(Number(item.sourceBankId)))
+        : null;
+      if (canonicalEntity) {
+        const canonicalKey = normalizeName(canonicalEntity.name);
+        const existingEntity = merged.get(canonicalKey) || { ...canonicalEntity };
+        existingEntity.pending = Math.max(existingEntity.pending || 0, item.pending || 0);
+        existingEntity.detail = existingEntity.detail || item.detail;
+        merged.set(canonicalKey, existingEntity);
+        return;
+      }
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, { ...item });
+        return;
+      }
+      existing.pending = Math.max(existing.pending || 0, item.pending || 0);
+      existing.judgments = Math.max(existing.judgments || 0, item.judgments || 0);
+      existing.registryNotice = existing.registryNotice || item.registryNotice;
+      existing.detail = existing.detail || item.detail;
+      existing.aliases = [...new Set([...(existing.aliases || []), ...(item.aliases || [])])];
+      if (item.risk === 'Elevated') existing.risk = 'Elevated';
+    });
+    return [...merged.values()];
+  }, []);
+
+  const runSearch = useCallback(async (searchQuery, selectedDatabase, selectedEntityType) => {
+    const cleaned = searchQuery.trim();
+    if (normalizeName(cleaned).replaceAll(' ', '').length < 3) return;
+    const requestId = ++requestSequence.current;
+    setLoading(true);
+    setError('');
+    setPage(1);
+    try {
+      let normalized = [];
+      if (selectedDatabase === 'cases') {
+        const [data, unified] = await Promise.all([
+          apiGet('/dashboard-search/pending-cases', { q: cleaned, page: 1, limit: 50 }),
+          apiGet('/search/unified', { query: cleaned, search_type: 'all', identity_only: true, page: 1, limit: 50 }),
+        ]);
+        normalized = mergeResults([
+          normalizeUnifiedResults(unified.results || []),
+          normalizePendingResults(data.results || [], cleaned),
+        ]).filter((item) => Number(item.pending || 0) > 0);
+      } else if (LIFECYCLE_DATABASE_TYPES[selectedDatabase]) {
+        const data = await apiGet('/company-lifecycle/notices', {
+          q: cleaned,
+          notice_type: LIFECYCLE_DATABASE_TYPES[selectedDatabase],
+          page: 1,
+          limit: 50,
+        });
+        normalized = normalizeLifecycleResults(data.notices || []);
+      } else {
+        const unifiedRequest = apiGet('/search/unified', { query: cleaned, search_type: 'all', identity_only: true, page: 1, limit: 50 });
+        if (selectedDatabase === 'judgments') {
+          const data = await unifiedRequest;
+          normalized = normalizeUnifiedResults(data.results || []).filter((item) => item.judgments > 0);
+        } else {
+          const [unified, pending, gazette, lifecycle] = await Promise.all([
+            unifiedRequest,
+            apiGet('/dashboard-search/pending-cases', { q: cleaned, page: 1, limit: 50 }),
+            apiGet('/gazette/', { search: cleaned, page: 1, limit: 50 }),
+            apiGet('/company-lifecycle/notices', { q: cleaned, page: 1, limit: 100 }),
+          ]);
+          normalized = mergeResults([
+            normalizeUnifiedResults(unified.results || []),
+            normalizePendingResults(pending.results || [], cleaned),
+            normalizeGazetteResults(gazette.gazettes || [], cleaned),
+            normalizeLifecycleResults(lifecycle.notices || []),
+          ]);
+        }
+      }
+
+      const filtered = normalized.filter((item) => {
+        if (selectedEntityType === 'all') return true;
+        if (selectedEntityType === 'individual') return item.type === 'Individual';
+        if (selectedEntityType === 'company') return item.type !== 'Individual';
+        return true;
+      });
+      if (requestId === requestSequence.current) setAllResults(filtered);
+    } catch (requestError) {
+      if (requestId === requestSequence.current) {
+        setAllResults([]);
+        setError(requestError.message || 'The entity index could not be searched.');
+      }
+    } finally {
+      if (requestId === requestSequence.current) setLoading(false);
+    }
+  }, [mergeResults, normalizeGazetteResults, normalizeLifecycleResults, normalizePendingResults, normalizeUnifiedResults]);
+
+  useEffect(() => {
+    const cleaned = query.trim();
+    const isValid = normalizeName(cleaned).replaceAll(' ', '').length >= 3 && Boolean(purpose);
+    const filtersChanged = previousCriteria.current.database !== database
+      || previousCriteria.current.entityType !== entityType;
+    previousCriteria.current = { database, entityType };
+    window.clearTimeout(searchTimer.current);
+
+    if (!isValid) {
+      requestSequence.current += 1;
+      setSubmittedQuery('');
+      setAllResults([]);
+      setPage(1);
+      setHasSearched(false);
+      setLoading(false);
+      setError('');
+      return undefined;
+    }
+
+    searchTimer.current = window.setTimeout(() => {
+      setSubmittedQuery(cleaned);
+      setHasSearched(true);
+      runSearch(cleaned, database, entityType);
+    }, filtersChanged ? 0 : 250);
+
+    return () => window.clearTimeout(searchTimer.current);
+  }, [database, entityType, purpose, query, runSearch]);
+
+  useEffect(() => {
+    const handleGlobalSearch = (event) => {
+      const nextQuery = String(event.detail?.query || '').trim();
+      if (nextQuery.length < 3) return;
+      setQuery(nextQuery);
+      setDatabase('all');
+      setEntityType('all');
+    };
+    window.addEventListener('juridence:global-search', handleGlobalSearch);
+    return () => window.removeEventListener('juridence:global-search', handleGlobalSearch);
+  }, []);
+
+  const totalPages = Math.ceil(allResults.length / PAGE_SIZE);
+  const results = useMemo(() => allResults.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [allResults, page]);
+  const firstRecord = allResults.length ? ((page - 1) * PAGE_SIZE) + 1 : 0;
+  const lastRecord = Math.min(page * PAGE_SIZE, allResults.length);
+
+  const submitSearch = (event) => {
+    event.preventDefault();
+    const cleaned = query.trim();
+    if (normalizeName(cleaned).replaceAll(' ', '').length < 3 || !purpose) return;
+    window.clearTimeout(searchTimer.current);
+    setSubmittedQuery(cleaned);
+    setHasSearched(true);
+    runSearch(cleaned, database, entityType);
+  };
+
   const clearSearch = () => {
+    window.clearTimeout(searchTimer.current);
+    requestSequence.current += 1;
     setQuery('');
     setSubmittedQuery('');
-    setResults([]);
+    setEntityType('all');
+    setDatabase('all');
+    setPurpose('kyc');
+    setAllResults([]);
     setPage(1);
-    setTotal(0);
-    setTotalPages(0);
-    setBankId('');
-    setError('');
     setHasSearched(false);
+    setError('');
   };
 
-  const handleQueryChange = (event) => {
-    const nextQuery = event.target.value;
-    setQuery(nextQuery);
-    if (!nextQuery.trim()) clearSearch();
+  const openEntity = (entity) => {
+    setSelectedEntity(entity);
+    setActiveEntityTab('summary');
   };
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    const cleanedQuery = query.trim();
-    if (!cleanedQuery) return;
-    setSubmittedQuery(cleanedQuery);
-    setHasSearched(true);
-    runSearch(cleanedQuery, 1, bankId);
+  useEffect(() => {
+    if (!selectedEntity) return undefined;
+    let current = true;
+    setEntityLoading(true);
+    setEntityError('');
+    setEntityData({ pendingCases: [], pendingTotal: 0, judgments: [], judgmentTotal: 0, registryNotices: [], registryTotal: 0, profile: null });
+    const pendingParams = selectedEntity.watchlistType === 'bank' && selectedEntity.rawId
+      ? { q: '', bank_id: selectedEntity.rawId, page: 1, limit: 500 }
+      : { q: selectedEntity.name, page: 1, limit: 500 };
+    const profilePath = selectedEntity.rawId && {
+      bank: `/banks/${selectedEntity.rawId}`,
+      company: `/companies/${selectedEntity.rawId}`,
+      insurance: `/insurance/${selectedEntity.rawId}`,
+    }[selectedEntity.watchlistType];
+    const registryPath = selectedEntity.rawId && {
+      bank: `/gazette/bank/${selectedEntity.rawId}`,
+      company: `/gazette/company/${selectedEntity.rawId}`,
+      insurance: `/gazette/insurance/${selectedEntity.rawId}`,
+    }[selectedEntity.watchlistType];
+    const registryRequest = Promise.all([
+      fetchAllPages('/gazette/', { search: selectedEntity.name }, 'gazettes', 100),
+      fetchAllPages('/company-lifecycle/notices', { q: selectedEntity.name }, 'notices', 500),
+      registryPath
+        ? fetchAllPages(registryPath, {}, 'gazettes', 100).catch(() => ({ gazettes: [] }))
+        : Promise.resolve({ gazettes: [] }),
+    ]).then(([searchMatches, lifecycleMatches, linkedMatches]) => ({
+      gazettes: [...new Map([
+        ...(searchMatches.gazettes || []).map((notice) => ({ ...notice, source_kind: 'gazette' })),
+        ...(linkedMatches.gazettes || []).map((notice) => ({ ...notice, source_kind: 'gazette' })),
+        ...(lifecycleMatches.notices || []).map((notice) => ({
+          ...notice,
+          source_kind: 'company-bulletin',
+          gazette_type: notice.notice_type,
+          current_name: notice.company_name,
+          old_name: notice.old_company_name,
+          new_name: notice.new_company_name,
+          gazette_number: notice.source?.volume_number ? `Companies Bulletin Vol. ${notice.source.volume_number}` : 'Companies Bulletin',
+          gazette_date: notice.publication_date,
+          title: notice.company_name,
+        })),
+      ].map((notice) => [`${notice.source_kind}-${notice.id}`, notice])).values()],
+    }));
+    Promise.all([
+      fetchAllPages('/dashboard-search/pending-cases', pendingParams, 'results', 500),
+      fetchAllPages('/dashboard-search/judgments', {
+        names: JSON.stringify([selectedEntity.name, ...(selectedEntity.aliases || [])]),
+      }, 'results', 100),
+      registryRequest,
+      selectedEntity.rawId
+        ? apiGet(`/watchlist/check/${selectedEntity.watchlistType}/${selectedEntity.rawId}`)
+        : Promise.resolve({ is_in_watchlist: false, watchlist_id: null }),
+      profilePath ? apiGet(profilePath).catch(() => null) : Promise.resolve(null),
+    ])
+      .then(([pending, judgments, registry, watch, profile]) => {
+        if (!current) return;
+        const registryMatches = registry.gazettes || [];
+        const registryNotices = selectedEntity.type === 'Individual'
+          ? registryMatches
+          : registryMatches.filter((notice) => {
+            const noticeType = String(notice.gazette_type || '').toUpperCase();
+            const linkedId = selectedEntity.watchlistType === 'bank'
+              ? notice.bank_id
+              : selectedEntity.watchlistType === 'insurance'
+                ? notice.insurance_id
+                : notice.company_id;
+            return noticeType.startsWith('COMPANY_')
+              || noticeType.startsWith('EXTERNAL_COMPANY_')
+              || (linkedId && Number(linkedId) === Number(selectedEntity.rawId));
+          });
+        setEntityData({
+          pendingCases: pending.results || [],
+          pendingTotal: pending.total || 0,
+          judgments: judgments.results || [],
+          judgmentTotal: judgments.total || 0,
+          registryNotices,
+          registryTotal: registryNotices.length,
+          profile,
+        });
+        setWatchlist({ isIn: Boolean(watch.is_in_watchlist), id: watch.watchlist_id || null });
+      })
+      .catch((requestError) => {
+        if (current) setEntityError(requestError.message || 'The entity record could not be loaded.');
+      })
+      .finally(() => { if (current) setEntityLoading(false); });
+    return () => { current = false; };
+  }, [selectedEntity]);
+
+  const toggleWatchlist = async () => {
+    if (!selectedEntity?.rawId || watchlistBusy) return;
+    setWatchlistBusy(true);
+    setEntityError('');
+    try {
+      if (watchlist.isIn) {
+        await apiDelete(`/watchlist/${watchlist.id}`);
+        setWatchlist({ isIn: false, id: null });
+      } else {
+        const item = await apiPost('/watchlist/', {
+          entity_type: selectedEntity.watchlistType,
+          entity_id: selectedEntity.rawId,
+          notify_on_new_cases: true,
+          notify_on_risk_change: true,
+          notify_on_regulatory_updates: false,
+        });
+        setWatchlist({ isIn: true, id: item.id });
+      }
+    } catch (requestError) {
+      setEntityError(requestError.message || 'The watchlist could not be updated.');
+    } finally {
+      setWatchlistBusy(false);
+    }
   };
 
-  const handleBankChange = (nextBankId) => {
-    setBankId(nextBankId);
-    runSearch(submittedQuery, 1, nextBankId);
+  const openItemReport = (item, details, recordType = 'judgment') => {
+    const now = new Date();
+    const datePart = now.toISOString().slice(0, 10).replaceAll('-', '');
+    const suffix = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, '0');
+    const reference = `JUR-${datePart}-${suffix}`;
+    const displayName = userInfo?.full_name || userInfo?.name || userInfo?.username || 'Workspace user';
+    const organisation = userInfo?.organization_name || userInfo?.organisation || userInfo?.company || 'Juridence';
+    const report = {
+      kind: 'single-item', recordType, reference, createdAt: now.toISOString(), entity: selectedEntity,
+      item, details, judgmentTotal: entityData.judgmentTotal || entityData.judgments.length,
+      pendingTotal: entityData.pendingTotal || entityData.pendingCases.length,
+      returnTab: recordType === 'pending' ? 'cases' : 'judgments',
+      purpose, purposeLabel: PURPOSES.find(([value]) => value === purpose)?.[1],
+      preparedFor: `${displayName} · ${organisation}`,
+      watchlist,
+    };
+    sessionStorage.removeItem('juridence_full_entity_report');
+    sessionStorage.setItem('juridence_single_item_report', JSON.stringify(report));
+    onNavigate?.('due-diligence-reports');
   };
 
-  const changePage = (nextPage) => {
-    runSearch(submittedQuery, nextPage, bankId);
-    window.scrollTo({ top: 250, behavior: 'smooth' });
+  const createFullEntityReport = (existingReference, existingCreatedAt) => {
+    const now = new Date();
+    const datePart = now.toISOString().slice(0, 10).replaceAll('-', '');
+    const suffix = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, '0');
+    const reference = existingReference || `JUR-${datePart}-${suffix}`;
+    const displayName = userInfo?.full_name || userInfo?.name || userInfo?.username || 'Workspace user';
+    const organisation = userInfo?.organization_name || userInfo?.organisation || userInfo?.company || 'Juridence';
+    const report = {
+      id: reference,
+      kind: 'full-entity',
+      reference,
+      subject: selectedEntity.name,
+      entity: selectedEntity,
+      data: entityData,
+      total: Number(entityData.pendingTotal || 0) + Number(entityData.judgmentTotal || 0) + Number(entityData.registryTotal || 0),
+      scope: 'Full entity profile',
+      risk: selectedEntity.risk || (Number(entityData.pendingTotal || 0) ? 'Elevated' : 'Standard'),
+      createdAt: existingCreatedAt || now.toISOString(),
+      purpose,
+      purposeLabel: PURPOSES.find(([value]) => value === purpose)?.[1],
+      preparedFor: `${displayName} · ${organisation}`,
+      watchlist,
+      returnTab: 'summary',
+    };
+    try {
+      const history = JSON.parse(localStorage.getItem('juridence_due_diligence_reports') || '[]');
+      const historyEntry = { ...report };
+      delete historyEntry.data;
+      const withoutCurrent = history.filter((item) => item.reference !== reference);
+      localStorage.setItem('juridence_due_diligence_reports', JSON.stringify([historyEntry, ...withoutCurrent].slice(0, 30)));
+    } catch { /* The report remains available when browser storage is unavailable. */ }
+    sessionStorage.removeItem('juridence_single_item_report');
+    sessionStorage.setItem('juridence_full_entity_report', JSON.stringify(report));
+    onNavigate?.('due-diligence-reports');
   };
+
+  const openSavedReport = (savedReport) => {
+    const payload = savedReport.payload || (savedReport.entity && savedReport.item ? savedReport : null);
+    if (savedReport.kind === 'full-entity') {
+      createFullEntityReport(savedReport.reference, savedReport.createdAt);
+    } else if (payload) {
+      sessionStorage.setItem('juridence_single_item_report', JSON.stringify(payload));
+    }
+    onNavigate?.('due-diligence-reports');
+  };
+
+  if (selectedEntity) {
+    return (
+      <EntityRecordView
+        entity={selectedEntity}
+        data={entityData}
+        loading={entityLoading}
+        error={entityError}
+        activeTab={activeEntityTab}
+        setActiveTab={setActiveEntityTab}
+        onBack={() => setSelectedEntity(null)}
+        onCreateFullReport={createFullEntityReport}
+        onOpenReport={openItemReport}
+        onOpenSavedReport={openSavedReport}
+        onToggleWatchlist={toggleWatchlist}
+        watchlist={watchlist}
+        watchlistBusy={watchlistBusy}
+      />
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#F7F9FC]" style={{ fontFamily: 'Satoshi' }}>
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} contextLabel="Database Search" />
+    <main className="dd-entity-enquiry">
+      <section className="dd-enquiry-intro">
+        <h1>Entity enquiry <span>JUR.ENQ.001</span></h1>
+        <p>Step 1 of 2 · Enter search criteria and select the entity record.</p>
+      </section>
 
-      <main className={`mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-8 ${hasSearched ? 'pb-10 pt-4' : 'flex min-h-[calc(100vh-92px)] items-center pb-10 pt-4'}`}>
-        <section className={`w-full overflow-hidden rounded-xl border border-[#E5E8EC] bg-white shadow-sm ${hasSearched ? '' : 'mx-auto max-w-[1120px]'}`}>
-          <div className="px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
-            <div className="flex max-w-3xl items-center gap-2 text-sm font-medium text-[#525866]">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF2FF] text-[#022658]"><Database size={16} /></span>
-              Juridence database search
-            </div>
-            <h1 className="mt-4 text-2xl font-bold leading-tight text-[#050F1C] sm:text-3xl">Find the case behind a name</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#525866]">
-              Search pending bank cases by any part of a party name, case title, or suit number.
-            </p>
-
-            <form onSubmit={handleSubmit} className="mt-6 flex max-w-4xl flex-col gap-3 sm:flex-row">
-              <label htmlFor="dashboard-case-search" className="sr-only">Search pending cases</label>
-              <div className="flex min-h-[50px] min-w-0 flex-1 items-center gap-3 rounded-lg border border-[#DDE1E6] bg-white px-4 text-[#050F1C] transition-colors focus-within:border-[#022658] focus-within:ring-2 focus-within:ring-[#022658]/10">
-                <Search size={20} className="shrink-0 text-[#525866]" />
-                <input
-                  id="dashboard-case-search"
-                  type="search"
-                  value={query}
-                  onChange={handleQueryChange}
-                  placeholder="Try Philip Ofori, OFORI Asante, or GJ/0622/2020"
-                  className="dashboard-search-input h-12 min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none focus:shadow-none focus-visible:outline-none placeholder:text-[#868C98]"
-                />
-              </div>
-              <Button type="submit" size="lg" loading={loading} disabled={!query.trim()} icon={<Search size={17} />} className="min-h-[50px] !rounded-lg !bg-[#022658] px-6 text-base hover:!bg-[#033B82] disabled:opacity-50">
-                Search cases
-              </Button>
-            </form>
+      <section className="dd-enquiry-panel">
+        <header>Search criteria</header>
+        <form onSubmit={submitSearch} autoComplete="off">
+          <div className="dd-enquiry-grid">
+            <label><span>Name <b>*</b></span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Company or individual name" required /></label>
+            <div className="dd-enquiry-field"><span>Entity type</span><CompactSelect id="entity-type" label="Entity type" options={ENTITY_TYPES} value={entityType} onChange={setEntityType} /></div>
+            <div className="dd-enquiry-field"><span>Database</span><CompactSelect id="database" label="Database" options={DATABASES} value={database} onChange={setDatabase} /></div>
+            <div className="dd-enquiry-field"><span>Purpose <b>*</b></span><CompactSelect id="purpose" label="Purpose" options={PURPOSES} value={purpose} onChange={setPurpose} /></div>
           </div>
-
-          <div className="grid border-t border-[#E5E8EC] bg-[#FAFBFC] sm:grid-cols-3">
-            {[
-              ['Indexed party records', stats.indexed_parties, UserRound],
-              ['Pending cases', stats.pending_cases, FileSearch],
-              ['Bank sources', stats.source_banks, Building2],
-            ].map(([label, value, Icon], index) => (
-              <div key={label} className={`flex items-center gap-3 px-5 py-4 sm:px-8 ${index > 0 ? 'border-t border-[#E5E8EC] sm:border-l sm:border-t-0' : ''}`}>
-                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#EAF2FF] text-[#022658]"><Icon size={18} /></span>
-                <div>
-                  <p className="text-lg font-bold text-[#050F1C]">{formatNumber(value)}</p>
-                  <p className="text-xs text-[#525866]">{label}</p>
-                </div>
-              </div>
-            ))}
+          <div className="dd-enquiry-actions">
+            <button type="submit" className="is-primary" disabled={loading || query.trim().length < 3}>{loading ? <Loader2 size={15} className="dd-spin" /> : null} Search</button>
+            <button type="button" onClick={clearSearch}>Clear</button>
+            <p>Minimum 3 characters. Matching ignores case and punctuation. <button type="button" className="dd-purpose-link" aria-expanded={showPurposeHelp} onClick={() => setShowPurposeHelp((visible) => !visible)}>Permissible purposes</button></p>
           </div>
-        </section>
+          {showPurposeHelp && <div className="dd-purpose-help">Use Juridence only for authorised KYC, credit, legal, employment-screening or ongoing-monitoring work. Select the purpose that matches the enquiry before searching.</div>}
+        </form>
+      </section>
 
-        {hasSearched && <section className="relative mt-6 overflow-visible rounded-xl border border-[#E5E8EC] bg-white shadow-sm" aria-labelledby="search-results-heading">
-          <div className="flex flex-col gap-4 border-b border-[#E5E8EC] px-5 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-6">
-            <div>
-              <h2 id="search-results-heading" className="font-bold text-[#050F1C]">
-                {submittedQuery ? `Results for “${submittedQuery}”` : 'Recently created pending cases'}
-              </h2>
-              <p className="mt-1 text-xs text-[#868C98]">
-                {loading ? 'Searching the party index' : `${formatNumber(total)} ${total === 1 ? 'case' : 'cases'} found`}
-              </p>
-            </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-              <BankFilterCombobox sources={stats.sources || []} value={bankId} onChange={handleBankChange} />
-              <Button variant="white" icon={<X size={15} />} onClick={clearSearch} className="shrink-0 !rounded-lg !border !border-[#DDE1E6] text-sm">Clear results</Button>
-            </div>
-          </div>
-
-          {error && (
-            <div className="border-b border-[#f1c7cd] bg-[#fff5f6] px-5 py-4 text-sm text-[#a82e3d] sm:px-6" role="alert">{error}</div>
-          )}
-
-          {loading ? (
-            <div className="flex min-h-[300px] items-center justify-center gap-3 text-sm text-[#60737d]">
-              <Loader2 size={20} className="animate-spin text-[#022658]" /> Searching case records
-            </div>
-          ) : results.length === 0 ? (
-            <div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#EAF2FF] text-[#022658]"><FileSearch size={22} /></span>
-              <h3 className="mt-4 font-semibold text-[#050F1C]">No matching pending case</h3>
-              <p className="mt-1 max-w-md text-sm leading-6 text-[#71818a]">Try one name at a time, another part of the party name, or the suit number.</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-[#e7edef]">
-              {results.map((result) => (
-                <article key={`${result.source_bank_id}-${result.case_id}`} className="px-5 py-5 transition-colors hover:bg-[#f8faf9] sm:px-6">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={statusVariant(result.status)}>{result.status || 'Pending'}</Badge>
-                        <span className="text-xs font-medium text-[#71818a]"><HighlightedText text={result.source_bank} query={submittedQuery} /></span>
-                      </div>
-                      <h3 className="mt-3 text-[15px] font-semibold leading-6 text-[#17334a]"><HighlightedText text={result.case_title || 'Untitled case'} query={submittedQuery} /></h3>
-                      {result.matched_party && (
-                        <p className="mt-2 flex items-center gap-2 text-sm text-[#405867]">
-                        <UserRound size={15} className="shrink-0 text-[#022658]" />
-                          <span><span className="text-[#71818a]">Matched party:</span> <strong className="font-semibold"><HighlightedText text={result.matched_party} query={submittedQuery} /></strong></span>
-                        </p>
-                      )}
-                    </div>
-
-                    <dl className="grid shrink-0 gap-x-6 gap-y-3 text-sm sm:grid-cols-3 lg:w-[570px]">
-                      <div>
-                        <dt className="flex items-center gap-1.5 text-xs font-medium text-[#7a8991]"><FileSearch size={14} /> Suit number</dt>
-                        <dd className="mt-1 font-semibold text-[#20384c]"><HighlightedText text={result.suit_number || 'Not recorded'} query={submittedQuery} /></dd>
-                      </div>
-                      <div>
-                        <dt className="flex items-center gap-1.5 text-xs font-medium text-[#7a8991]"><Landmark size={14} /> Court</dt>
-                        <dd className="mt-1 font-semibold text-[#20384c]">{formatCourtType(result.court_type)}</dd>
-                      </div>
-                      <div>
-                        <dt className="flex items-center gap-1.5 text-xs font-medium text-[#7a8991]"><CalendarDays size={14} /> Created</dt>
-                        <dd className="mt-1 font-semibold text-[#20384c]">{formatDate(result.created_on)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-
-          {totalPages > 1 && !loading && (
-            <div className="flex items-center justify-between border-t border-[#e3eaed] px-5 py-4 sm:px-6">
-              <p className="text-xs text-[#71818a]">Page {page} of {totalPages}</p>
-              <div className="flex items-center gap-2">
-                <Button variant="white" size="sm" icon={<ArrowLeft size={15} />} disabled={page <= 1} onClick={() => changePage(page - 1)} className="!border !border-[#DDE1E6]">Previous</Button>
-                <Button variant="white" size="sm" icon={<ArrowRight size={15} />} iconPosition="right" disabled={page >= totalPages} onClick={() => changePage(page + 1)} className="!border !border-[#DDE1E6]">Next</Button>
-              </div>
-            </div>
-          )}
-        </section>}
-      </main>
-    </div>
+      {hasSearched && <section className="dd-enquiry-results" aria-live="polite">
+        <header>
+          <h2>Results <span>{allResults.length}</span></h2>
+          <div><span>Records {firstRecord}–{lastRecord} of {allResults.length}</span><button type="button" disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}><ChevronLeft size={14} /> Prev</button><button type="button" disabled={page >= totalPages || loading} onClick={() => setPage((value) => value + 1)}>Next <ChevronRight size={14} /></button></div>
+        </header>
+        {error && <div className="dd-inline-alert is-error">{error}</div>}
+        {loading ? <div className="dd-loading-state"><Loader2 size={22} className="dd-spin" /> Searching entity records</div> : results.length === 0 ? <div className="dd-empty-state"><strong>No matching entity</strong><p>Check the spelling, select another database, or try a shorter name.</p></div> : <div className="dd-table-wrap"><table className="dd-entity-table"><thead><tr><th>Entity ID</th><th>Name</th><th>Type</th><th>Pending</th><th>Judgments</th><th>Registry notice</th><th>Risk</th><th aria-label="Action" /></tr></thead><tbody>{results.map((result) => <tr key={result.id} className="dd-clickable-row" tabIndex="0" onClick={() => openEntity(result)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openEntity(result); } }}><td><code>{result.id}</code></td><td><strong><HighlightedText text={result.name} query={submittedQuery} /></strong><ResultAliases aliases={result.aliases} query={submittedQuery} />{!result.aliases?.length && result.detail && <small>{result.detail}</small>}</td><td>{result.type}</td><td className="dd-number">{result.pending || '—'}</td><td className="dd-number">{result.judgments || '—'}</td><td>{result.registryNotice ? <span className="dd-registry-badge">{result.registryNotice}</span> : '—'}</td><td><span className={`dd-risk-badge is-${String(result.risk).toLowerCase()}`}>{result.risk}</span></td><td><button type="button" className="dd-open-entity" onClick={(event) => { event.stopPropagation(); openEntity(result); }}>Open</button></td></tr>)}</tbody></table></div>}
+      </section>}
+    </main>
   );
 };
 

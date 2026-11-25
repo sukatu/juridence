@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.gazette import Gazette, GazetteType, GazetteStatus, GazettePriority
 from models.people import People
+from models.companies import Companies
 from services.auto_analytics_generator import AutoAnalyticsGenerator
 import pandas as pd
 from datetime import datetime
@@ -14,6 +15,25 @@ import os
 
 router = APIRouter()
 logging.basicConfig(level=logging.INFO)
+
+COMPANY_NOTICE_LABELS = {
+    GazetteType.COMPANY_WINDING_UP: "Notice of Winding Up of a Company",
+    GazetteType.COMPANY_DISSOLUTION: "Notice of Dissolution of Companies from the Register",
+    GazetteType.COMPANY_STRIKE_OFF_INTENTION: "Notice of Intention to Strike Off Companies from the Register",
+    GazetteType.EXTERNAL_COMPANY_CESSATION: "Notice of Cessation of Business of External Company",
+}
+
+
+def row_value(row, *column_names):
+    """Return the first populated value matching a case-insensitive column name."""
+    normalized = {str(column).strip().lower(): column for column in row.index}
+    for name in column_names:
+        column = normalized.get(name.strip().lower())
+        if column is not None and pd.notna(row[column]):
+            value = str(row[column]).strip()
+            if value and value.lower() != "nan":
+                return value
+    return ""
 
 def parse_gazette_date(date_str: str) -> Optional[datetime]:
     """Parse various date formats from Excel data"""
@@ -177,12 +197,16 @@ async def import_gazette_excel(
                     gazette_entry, person = process_change_of_place_of_birth(db, row, index)
                 elif gazette_type_enum == GazetteType.APPOINTMENT_OF_MARRIAGE_OFFICERS:
                     gazette_entry, person = process_marriage_officers(db, row, index)
+                elif gazette_type_enum in COMPANY_NOTICE_LABELS:
+                    gazette_entry, person = process_company_notice(
+                        db, row, index, gazette_type_enum, file.filename
+                    )
                 else:
                     raise HTTPException(status_code=400, detail=f"Unsupported gazette type: {gazette_type}")
                 
-                if gazette_entry and person:
-                    # Sync gazette data to people table
-                    sync_gazette_to_people(db, gazette_entry, person)
+                if gazette_entry:
+                    if isinstance(person, People):
+                        sync_gazette_to_people(db, gazette_entry, person)
                     imported_count += 1
                     logging.info(f"Imported gazette entry: {gazette_entry.title}")
                 
@@ -435,4 +459,130 @@ def process_marriage_officers(db: Session, row, index: int):
         
     except Exception as e:
         logging.error(f"Error processing marriage officers row {index + 1}: {e}")
+        return None, None
+
+
+def process_company_notice(db: Session, row, index: int, gazette_type: GazetteType, filename: str):
+    """Import an ORC company-status notice without overwriting company profile fields."""
+    try:
+        company_name = row_value(
+            row,
+            "Company Name",
+            "Name of Company",
+            "Name of External Company",
+            "Current/New Name",
+            "Current/New Name *",
+            "Company",
+            "Name",
+        )
+        if not company_name:
+            raise ValueError("Company Name is required")
+
+        registration_number = row_value(
+            row,
+            "Registration Number",
+            "Company Registration Number",
+            "Company Number",
+            "Registration No.",
+            "Registration No",
+        )
+        company = None
+        if registration_number:
+            company = db.query(Companies).filter(
+                Companies.registration_number == registration_number
+            ).first()
+        if not company:
+            company = db.query(Companies).filter(Companies.name.ilike(company_name)).first()
+        if not company:
+            company = Companies(
+                name=company_name,
+                registration_number=registration_number or None,
+                country="Ghana",
+                is_active=True,
+                is_verified=False,
+                notes="Created from Office of the Registrar of Companies notice import",
+            )
+            db.add(company)
+            db.flush()
+
+        gazette_date = parse_gazette_date(
+            row_value(row, "Gazette Date", "Publication Date", "Notice Date", "Date")
+        )
+        effective_date = parse_gazette_date(
+            row_value(
+                row,
+                "Effective Date",
+                "Date of Dissolution",
+                "Date of Cessation",
+                "Winding Up Date",
+            )
+        )
+        gazette_number = row_value(row, "Gazette Number", "Gazette No.", "Gazette No") or "UNSPECIFIED"
+        item_number = row_value(
+            row, "Item Number", "Item No.", "Item No", "Notice Number"
+        ) or f"row-{index + 2}"
+        page_value = row_value(row, "Page Number", "Page No.", "Page No")
+        reference_number = row_value(row, "Reference Number", "Reference No.", "Reference No")
+        address = row_value(row, "Registered Office", "Company Address", "Address")
+        remarks = row_value(row, "Remarks", "Reason", "Details", "Description")
+        notice_label = COMPANY_NOTICE_LABELS[gazette_type]
+        content_parts = [
+            notice_label,
+            f"Company: {company_name}",
+            f"Registration number: {registration_number}" if registration_number else None,
+            f"Registered office: {address}" if address else None,
+            remarks or None,
+        ]
+
+        gazette = Gazette(
+            title=f"{notice_label} - {company_name}",
+            description=remarks or notice_label,
+            content="\n".join(part for part in content_parts if part),
+            gazette_type=gazette_type,
+            status=GazetteStatus.PUBLISHED,
+            priority=(
+                GazettePriority.HIGH
+                if gazette_type in {
+                    GazetteType.COMPANY_WINDING_UP,
+                    GazetteType.COMPANY_DISSOLUTION,
+                }
+                else GazettePriority.MEDIUM
+            ),
+            publication_date=gazette_date or effective_date or datetime.now(),
+            effective_date=effective_date,
+            gazette_date=gazette_date,
+            gazette_number=gazette_number,
+            item_number=item_number,
+            source_item_number=item_number,
+            document_filename=filename or "company-notice-import.xlsx",
+            page_number=int(float(page_value)) if page_value else None,
+            gazette_page=int(float(page_value)) if page_value else None,
+            reference_number=reference_number or registration_number or None,
+            current_name=company_name,
+            name_value=company_name,
+            name_role="master",
+            address=address or None,
+            remarks=remarks or None,
+            source="Office of the Registrar of Companies",
+            jurisdiction="Ghana",
+            company_id=company.id,
+            keywords=[value for value in [company_name, registration_number, notice_label] if value],
+            tags=["company", "registrar", gazette_type.value.lower()],
+            gazette_metadata={
+                "company_name": company_name,
+                "registration_number": registration_number or None,
+                "registered_office": address or None,
+                "notice_category": gazette_type.value,
+                "source_row": index + 2,
+            },
+            is_public=True,
+            created_by=None,
+        )
+        db.add(gazette)
+        db.commit()
+        db.refresh(gazette)
+        return gazette, company
+    except Exception as error:
+        db.rollback()
+        logging.error("Error processing company notice row %s: %s", index + 1, error)
         return None, None

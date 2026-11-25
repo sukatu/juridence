@@ -27,7 +27,7 @@ import {
   LogOut
 } from 'lucide-react';
 import AdminHeader from './AdminHeader';
-import { apiGet, apiPut } from '../../utils/api';
+import { apiGet, apiPut, getAuthToken, logoutSession } from '../../utils/api';
 
 const ProfileManagement = ({ userInfo, onNavigate, onLogout }) => {
   // Profile data state
@@ -608,43 +608,9 @@ const ProfileManagement = ({ userInfo, onNavigate, onLogout }) => {
     return matchesSearch && matchesStatus;
   });
 
-  // Quick login function for testing
-  const handleQuickLogin = async () => {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          email: 'admin@test.com',
-          password: 'admin123'
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Login failed');
-      }
-
-      const data = await response.json();
-      localStorage.setItem('accessToken', data.access_token);
-      localStorage.setItem('userData', JSON.stringify(data.user));
-      localStorage.setItem('isAuthenticated', 'true');
-      
-      setSuccess('Logged in successfully! Refreshing profile...');
-      setTimeout(() => {
-        loadProfile();
-      }, 1000);
-    } catch (err) {
-      setError('Quick login failed: ' + err.message);
-    }
-  };
-
   // Logout function
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('userData');
-    localStorage.removeItem('isAuthenticated');
+  const handleLogout = async () => {
+    await logoutSession();
     setProfileData({
       first_name: '',
       last_name: '',
@@ -671,7 +637,7 @@ const ProfileManagement = ({ userInfo, onNavigate, onLogout }) => {
   }
 
   // Show login prompt if no token
-  if (!localStorage.getItem('accessToken')) {
+  if (!getAuthToken()) {
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
@@ -680,19 +646,12 @@ const ProfileManagement = ({ userInfo, onNavigate, onLogout }) => {
             <p className="text-slate-600 mb-6">
               You need to be logged in to access profile management.
             </p>
-            <div className="space-y-4">
-              <button
-                onClick={handleQuickLogin}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-              >
-                Login as Admin (Test)
-              </button>
-              <div className="text-sm text-slate-500">
-                <p>Test Credentials:</p>
-                <p>Email: admin@test.com</p>
-                <p>Password: admin123</p>
-              </div>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Return to sign in
+            </button>
           </div>
         </div>
       </div>

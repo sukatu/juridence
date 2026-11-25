@@ -83,12 +83,13 @@ async def get_cause_lists(
     # Apply pagination
     offset = (page - 1) * limit
     cause_lists = query.order_by(CauseList.hearing_date.desc(), CauseList.hearing_time).offset(offset).limit(limit).all()
+    serialized = [CauseListResponse.model_validate(item).model_dump() for item in cause_lists]
     
     # Calculate total pages
     total_pages = math.ceil(total / limit) if total > 0 else 1
     
     return {
-        "cause_lists": cause_lists,
+        "cause_lists": serialized,
         "total": total,
         "page": page,
         "limit": limit,
@@ -203,6 +204,54 @@ async def get_supreme_court_news():
             break
 
     return {"items": items}
+
+
+@router.get("/admin/cause-lists/summary", response_model=dict)
+async def get_cause_list_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Return read-only register totals and filter distributions."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    today = date.today()
+    active_query = db.query(CauseList).filter(CauseList.is_active == True)
+
+    total = active_query.count()
+    today_count = active_query.filter(CauseList.hearing_date == today).count()
+    upcoming = active_query.filter(CauseList.hearing_date >= today).count()
+    past = active_query.filter(CauseList.hearing_date < today).count()
+    sitting_dates = active_query.with_entities(
+        func.count(func.distinct(CauseList.hearing_date))
+    ).scalar() or 0
+    earliest, latest = active_query.with_entities(
+        func.min(CauseList.hearing_date),
+        func.max(CauseList.hearing_date)
+    ).one()
+
+    def distribution(column):
+        rows = active_query.with_entities(
+            column,
+            func.count(CauseList.id)
+        ).group_by(column).order_by(func.count(CauseList.id).desc(), column).all()
+        return [
+            {"label": label or "Not recorded", "count": count}
+            for label, count in rows
+        ]
+
+    return {
+        "total": total,
+        "today": today_count,
+        "upcoming": upcoming,
+        "past": past,
+        "sitting_dates": sitting_dates,
+        "earliest_hearing_date": earliest.isoformat() if earliest else None,
+        "latest_hearing_date": latest.isoformat() if latest else None,
+        "by_case_type": distribution(CauseList.case_type),
+        "by_court_type": distribution(CauseList.court_type),
+        "by_status": distribution(CauseList.status),
+    }
 
 @router.get("/admin/cause-lists/{cause_list_id}", response_model=CauseListResponse)
 async def get_cause_list(

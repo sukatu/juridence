@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LayoutDashboard, CreditCard, Users, Search, Building2, Eye, FileText, HelpCircle, Bell, Settings, LogOut, ChevronRight } from 'lucide-react';
 import LogoutConfirmationModal from './admin/LogoutConfirmationModal';
+import { logoutSession } from '../utils/api';
 
 const CorporateClientNavbar = ({ activeTab, setActiveTab, onLogout }) => {
   const navigate = useNavigate();
@@ -11,16 +12,8 @@ const CorporateClientNavbar = ({ activeTab, setActiveTab, onLogout }) => {
     setShowLogoutModal(true);
   };
 
-  const confirmLogout = () => {
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('userEmail');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userPicture');
-    localStorage.removeItem('authProvider');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('userData');
-
-    window.dispatchEvent(new CustomEvent('authStateChanged'));
+  const confirmLogout = async () => {
+    await logoutSession();
     navigate('/');
   };
 

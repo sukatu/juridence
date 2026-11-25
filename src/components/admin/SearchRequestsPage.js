@@ -1,824 +1,716 @@
-import React, { useState, useEffect, useRef } from 'react';
-import SearchRequestDetails from './SearchRequestDetails';
-import AdminHeader from './AdminHeader';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  BarChart3,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  CircleDot,
+  Clock3,
+  Download,
+  Eye,
+  FileSearch,
+  Inbox,
+  Loader2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  UserRoundCheck,
+  X,
+} from 'lucide-react';
 import { apiGet, apiPut } from '../../utils/api';
-import { showSuccess, handleApiError, confirmAction } from '../../utils/errorHandler';
-import { Search, Filter, ChevronDown, X, Download, MoreVertical, Eye, CheckCircle, Clock, AlertCircle, ChevronLeft, ChevronRight, FileText, BarChart3 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
-const SearchRequestsPage = ({ userInfo, onNavigate, onLogout }) => {
-  const [activeFilter, setActiveFilter] = useState('all');
-  const [selectedRequest, setSelectedRequest] = useState(null);
+const PAGE_SIZE = 20;
+
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+const REQUEST_TYPE_OPTIONS = [
+  { value: 'case_details', label: 'Case details' },
+  { value: 'legal_documents', label: 'Legal documents' },
+  { value: 'court_records', label: 'Court records' },
+  { value: 'financial_information', label: 'Financial information' },
+  { value: 'profile_information', label: 'Profile information' },
+  { value: 'contact_details', label: 'Contact details' },
+  { value: 'management_details', label: 'Management details' },
+  { value: 'legal_history', label: 'Legal history' },
+  { value: 'other', label: 'Other' },
+];
+
+const ENTITY_TYPE_OPTIONS = [
+  { value: 'person', label: 'Person' },
+  { value: 'bank', label: 'Bank' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'company', label: 'Company' },
+  { value: 'case', label: 'Case' },
+];
+
+const PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+];
+
+const EMPTY_STATS = {
+  total_requests: 0,
+  pending_requests: 0,
+  in_progress_requests: 0,
+  completed_requests: 0,
+  rejected_requests: 0,
+  urgent_requests: 0,
+  requests_by_type: Object.fromEntries(REQUEST_TYPE_OPTIONS.map(({ value }) => [value, 0])),
+  requests_by_entity: Object.fromEntries(ENTITY_TYPE_OPTIONS.map(({ value }) => [value, 0])),
+  requests_by_status: Object.fromEntries(STATUS_OPTIONS.map(({ value }) => [value, 0])),
+};
+
+const labelFor = (options, value, fallback = 'Not recorded') => (
+  options.find((option) => option.value === value)?.label || fallback
+);
+
+const formatNumber = (value) => Number(value || 0).toLocaleString();
+
+const formatDate = (value, includeTime = true) => {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return includeTime
+    ? date.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+    : date.toLocaleDateString('en-GB', { dateStyle: 'medium' });
+};
+
+const requestReference = (request) => `REQ-${String(request?.id || 0).padStart(4, '0')}`;
+
+const requestSubject = (request) => (
+  request?.entity_name || request?.case_suit_number || 'General information request'
+);
+
+const statusClass = (status) => {
+  if (status === 'completed') return 'is-clear';
+  if (status === 'rejected' || status === 'cancelled') return 'is-error';
+  if (status === 'in_progress') return 'is-info';
+  return 'is-review';
+};
+
+const priorityClass = (priority, isUrgent) => {
+  if (isUrgent || priority === 'urgent' || priority === 'high') return 'is-error';
+  if (priority === 'medium') return 'is-review';
+  return 'is-clear';
+};
+
+const buildFallbackStats = (requests) => {
+  const result = {
+    ...EMPTY_STATS,
+    requests_by_type: { ...EMPTY_STATS.requests_by_type },
+    requests_by_entity: { ...EMPTY_STATS.requests_by_entity },
+    requests_by_status: { ...EMPTY_STATS.requests_by_status },
+  };
+  result.total_requests = requests.length;
+  requests.forEach((request) => {
+    if (request.status in result.requests_by_status) result.requests_by_status[request.status] += 1;
+    if (request.request_type in result.requests_by_type) result.requests_by_type[request.request_type] += 1;
+    if (request.entity_type in result.requests_by_entity) result.requests_by_entity[request.entity_type] += 1;
+    if (request.is_urgent) result.urgent_requests += 1;
+  });
+  result.pending_requests = result.requests_by_status.pending;
+  result.in_progress_requests = result.requests_by_status.in_progress;
+  result.completed_requests = result.requests_by_status.completed;
+  result.rejected_requests = result.requests_by_status.rejected;
+  return result;
+};
+
+const mergeStats = (stats) => ({
+  ...EMPTY_STATS,
+  ...(stats || {}),
+  requests_by_type: { ...EMPTY_STATS.requests_by_type, ...(stats?.requests_by_type || {}) },
+  requests_by_entity: { ...EMPTY_STATS.requests_by_entity, ...(stats?.requests_by_entity || {}) },
+  requests_by_status: { ...EMPTY_STATS.requests_by_status, ...(stats?.requests_by_status || {}) },
+});
+
+const DetailField = ({ label, value, wide = false }) => (
+  <div className={wide ? 'is-wide' : ''}>
+    <dt>{label}</dt>
+    <dd>{value || 'Not recorded'}</dd>
+  </div>
+);
+
+const BreakdownPanel = ({ title, description, values, options, total }) => (
+  <section className="dd-panel">
+    <header className="dd-panel-header">
+      <div>
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      <span className="dd-count-badge">{formatNumber(total)} total</span>
+    </header>
+    <div className="dd-request-breakdown">
+      {options.map((option) => {
+        const count = Number(values?.[option.value] || 0);
+        const width = total ? Math.max((count / total) * 100, count ? 3 : 0) : 0;
+        return (
+          <div key={option.value}>
+            <span>{option.label}</span>
+            <i aria-hidden="true"><b style={{ width: `${width}%` }} /></i>
+            <strong>{formatNumber(count)}</strong>
+          </div>
+        );
+      })}
+    </div>
+  </section>
+);
+
+const SearchRequestsPage = ({ userInfo }) => {
+  const [activeView, setActiveView] = useState('queue');
   const [requests, setRequests] = useState([]);
+  const [stats, setStats] = useState(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showFilterMenu, setShowFilterMenu] = useState(false);
-  const [showSortMenu, setShowSortMenu] = useState(false);
-  const [showActionMenu, setShowActionMenu] = useState(null);
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [assignedUser, setAssignedUser] = useState('');
-  const [stats, setStats] = useState({ total: 0, pending: 0, inProgress: 0, completed: 0 });
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
-  const [sortBy, setSortBy] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [requestTypeFilter, setRequestTypeFilter] = useState('');
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  
-  const filterMenuRef = useRef(null);
-  const sortMenuRef = useRef(null);
-  const exportMenuRef = useRef(null);
-  const actionMenuRefs = useRef({});
+  const [entityTypeFilter, setEntityTypeFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+  const [page, setPage] = useState(1);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [requestDetail, setRequestDetail] = useState(null);
+  const [detailTab, setDetailTab] = useState('request');
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [processingForm, setProcessingForm] = useState({
+    status: 'pending',
+    assigned_to: '',
+    priority: 'medium',
+    is_urgent: false,
+    admin_notes: '',
+    response_message: '',
+  });
 
-  const getStatusClass = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'pending':
-        return { class: 'text-[#DEBB0C]', bg: 'bg-yellow-50', text: 'text-yellow-700' };
-      case 'in_progress':
-      case 'in-progress':
-        return { class: 'text-blue-500', bg: 'bg-blue-50', text: 'text-blue-700' };
-      case 'completed':
-        return { class: 'text-emerald-500', bg: 'bg-green-50', text: 'text-green-700' };
-      case 'rejected':
-      case 'cancelled':
-        return { class: 'text-red-500', bg: 'bg-red-50', text: 'text-red-700' };
-      default:
-        return { class: 'text-gray-600', bg: 'bg-gray-50', text: 'text-gray-700' };
+  const currentUser = useMemo(() => {
+    const composedName = [userInfo?.first_name, userInfo?.last_name].filter(Boolean).join(' ');
+    return userInfo?.full_name || composedName || userInfo?.username || userInfo?.email || 'Workspace administrator';
+  }, [userInfo]);
+
+  const loadData = useCallback(async ({ quiet = false } = {}) => {
+    if (quiet) setRefreshing(true);
+    else setLoading(true);
+    setError('');
+    const [requestsResult, statsResult] = await Promise.allSettled([
+      apiGet('/request-details/', { skip: 0, limit: 1000 }),
+      apiGet('/request-details/stats'),
+    ]);
+
+    const nextRequests = requestsResult.status === 'fulfilled' && Array.isArray(requestsResult.value)
+      ? requestsResult.value
+      : [];
+    setRequests(nextRequests);
+    if (statsResult.status === 'fulfilled') setStats(mergeStats(statsResult.value));
+    else setStats(buildFallbackStats(nextRequests));
+
+    if (requestsResult.status === 'rejected') {
+      setError(requestsResult.reason?.detail || requestsResult.reason?.message || 'The request queue could not be loaded.');
+    } else if (statsResult.status === 'rejected') {
+      setError('Queue totals could not be loaded. Counts shown are calculated from the available requests.');
     }
-  };
-
-  const getStatusLabel = (status) => {
-    if (!status) return 'Unknown';
-    const statusMap = {
-      'pending': 'Pending',
-      'in_progress': 'In Progress',
-      'in-progress': 'In Progress',
-      'completed': 'Completed',
-      'rejected': 'Rejected',
-      'cancelled': 'Cancelled'
-    };
-    return statusMap[status.toLowerCase()] || status;
-  };
-
-  const getRequestTypeLabel = (type) => {
-    if (!type) return 'Other';
-    const typeMap = {
-      'case_details': 'Case history research',
-      'legal_documents': 'Legal Documents',
-      'court_records': 'Court Records',
-      'financial_information': 'Financial Information',
-      'profile_information': 'Person verification',
-      'contact_details': 'Contact Details',
-      'management_details': 'Management Details',
-      'legal_history': 'Legal History',
-      'other': 'Other'
-    };
-    return typeMap[type.toLowerCase()] || type;
-  };
-
-  const getEntityTypeLabel = (type) => {
-    if (!type) return '';
-    const typeMap = {
-      'person': 'Person',
-      'bank': 'Bank',
-      'insurance': 'Insurance',
-      'company': 'Company',
-      'case': 'Case'
-    };
-    return typeMap[type.toLowerCase()] || type;
-  };
-
-  const filters = [
-    { id: 'all', label: 'All', requestType: null },
-    { id: 'person-verification', label: 'Person verification', requestType: 'profile_information' },
-    { id: 'company-diligence', label: 'Company due diligence', requestType: 'management_details' },
-    { id: 'case-history', label: 'Case history research', requestType: 'case_details' },
-    { id: 'other', label: 'Other', requestType: 'other' }
-  ];
-
-  // Format date
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-    } catch (e) {
-      return dateString;
-    }
-  };
-
-  // Load requests from API
-  const loadRequests = async () => {
-    try {
-      setLoading(true);
-      
-      // First, get all requests for filtering/searching (or use a higher limit)
-      const params = new URLSearchParams({
-        skip: '0',
-        limit: '1000' // Get more for client-side filtering
-      });
-
-      // Add active filter (request type)
-      const activeFilterTab = filters.find(f => f.id === activeFilter);
-      if (activeFilterTab && activeFilterTab.requestType) {
-        params.append('request_type', activeFilterTab.requestType);
-      }
-
-      // Add status filter
-      if (statusFilter) {
-        params.append('status', statusFilter);
-      }
-
-      if (requestTypeFilter) {
-        params.append('request_type', requestTypeFilter);
-      }
-
-      const response = await apiGet(`/request-details?${params.toString()}`);
-      let allRequests = Array.isArray(response) ? response : [];
-
-      // Apply client-side search if needed
-      if (searchTerm) {
-        allRequests = allRequests.filter(req => {
-          const searchLower = searchTerm.toLowerCase();
-          return (
-            (req.entity_name && req.entity_name.toLowerCase().includes(searchLower)) ||
-            (req.requester_name && req.requester_name.toLowerCase().includes(searchLower)) ||
-            (req.requester_email && req.requester_email.toLowerCase().includes(searchLower)) ||
-            (req.case_suit_number && req.case_suit_number.toLowerCase().includes(searchLower)) ||
-            (req.id && req.id.toString().includes(searchLower)) ||
-            (getRequestTypeLabel(req.request_type).toLowerCase().includes(searchLower))
-          );
-        });
-      }
-
-      // Calculate total for pagination
-      const total = allRequests.length;
-      const totalPages = Math.ceil(total / pagination.limit);
-      
-      // Apply pagination
-      const startIndex = (pagination.page - 1) * pagination.limit;
-      const endIndex = startIndex + pagination.limit;
-      const paginatedRequests = allRequests.slice(startIndex, endIndex);
-
-      setRequests(paginatedRequests);
-      setPagination(prev => ({ ...prev, total, totalPages }));
-      
-    } catch (error) {
-      console.error('Error loading requests:', error);
-      if (error.status !== 401) { // Don't show error for auth failures
-        handleApiError(error, 'load search requests');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Load stats
-  const loadStats = async () => {
-    try {
-      const response = await apiGet('/request-details/stats');
-      if (response) {
-        setStats({
-          total: response.total_requests || 0,
-          pending: response.pending_requests || 0,
-          inProgress: response.in_progress_requests || 0,
-          completed: response.completed_requests || 0
-        });
-      }
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadRequests();
-    loadStats();
-  }, [pagination.page, activeFilter, statusFilter, requestTypeFilter]);
-
-  // Close dropdowns on outside click
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (filterMenuRef.current && !filterMenuRef.current.contains(event.target)) {
-        setShowFilterMenu(false);
-      }
-      if (sortMenuRef.current && !sortMenuRef.current.contains(event.target)) {
-        setShowSortMenu(false);
-      }
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target)) {
-        setShowExportMenu(false);
-      }
-      Object.keys(actionMenuRefs.current).forEach(id => {
-        if (actionMenuRefs.current[id] && !actionMenuRefs.current[id].contains(event.target)) {
-          setShowActionMenu(null);
-        }
-      });
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
-  // Handle search
+  useEffect(() => { loadData(); }, [loadData]);
+
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setPagination(prev => ({ ...prev, page: 1 }));
-      loadRequests();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+    setPage(1);
+  }, [searchQuery, statusFilter, requestTypeFilter, entityTypeFilter, priorityFilter, sortBy]);
 
-  // Handle assign
-  const handleAssign = async (requestId) => {
-    if (!assignedUser && !userInfo?.username && !userInfo?.full_name) {
-      handleApiError({ message: 'Please select a user to assign' }, 'assign request');
-      return;
-    }
-    
-    try {
-      await apiPut(`/request-details/${requestId}`, { 
-        assigned_to: assignedUser || userInfo?.username || userInfo?.full_name,
-        status: 'in_progress'
-      });
-      showSuccess('Request assigned successfully');
-      setShowAssignModal(false);
-      setAssignedUser('');
-      setShowActionMenu(null);
-      loadRequests();
-      loadStats();
-    } catch (error) {
-      handleApiError(error, 'assign request');
-    }
-  };
-
-  // Handle start investigation
-  const handleStartInvestigation = async (requestId) => {
-    try {
-      await apiPut(`/request-details/${requestId}`, { 
-        status: 'in_progress',
-        assigned_to: userInfo?.username || userInfo?.full_name || 'Current User'
-      });
-      showSuccess('Investigation started successfully');
-      loadRequests();
-      loadStats();
-    } catch (error) {
-      handleApiError(error, 'start investigation');
-    }
-  };
-
-  // Handle mark as completed
-  const handleMarkCompleted = async (requestId) => {
-    confirmAction(
-      'Are you sure you want to mark this request as completed?',
-      async () => {
-        try {
-          await apiPut(`/request-details/${requestId}`, { 
-            status: 'completed',
-            completed_at: new Date().toISOString()
-          });
-          showSuccess('Request marked as completed');
-          loadRequests();
-          loadStats();
-        } catch (error) {
-          handleApiError(error, 'mark request as completed');
-        }
-      }
-    );
-  };
-
-  // Export to CSV
-  const exportToCSV = () => {
-    const exportData = requests.map(r => ({
-      'Request ID': r.id || 'N/A',
-      'Title': r.entity_name || 'N/A',
-      'Category': getRequestTypeLabel(r.request_type),
-      'Status': getStatusLabel(r.status),
-      'Submitted Date': formatDate(r.created_at),
-      'Assigned To': r.assigned_to || '-',
-      'To be Completed': r.completed_at ? formatDate(r.completed_at) : 'N/A',
-      'Requester': r.requester_name || 'N/A',
-      'Requester Email': r.requester_email || 'N/A',
-      'Priority': r.priority || 'MEDIUM',
-      'Urgent': r.is_urgent ? 'Yes' : 'No'
-    }));
-
-    const headers = Object.keys(exportData[0]);
-    let csvContent = headers.join(',') + '\n';
-    
-    exportData.forEach(row => {
-      const values = headers.map(header => {
-        const value = row[header] || '';
-        if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
-      });
-      csvContent += values.join(',') + '\n';
+  const filteredRequests = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
+    const statusOrder = { pending: 1, in_progress: 2, completed: 3, rejected: 4, cancelled: 5 };
+    const filtered = requests.filter((request) => {
+      const matchesSearch = !query || [
+        requestReference(request),
+        request.entity_name,
+        request.case_suit_number,
+        request.requester_name,
+        request.requester_email,
+        labelFor(REQUEST_TYPE_OPTIONS, request.request_type, request.request_type),
+      ].some((value) => String(value || '').toLowerCase().includes(query));
+      return matchesSearch
+        && (!statusFilter || request.status === statusFilter)
+        && (!requestTypeFilter || request.request_type === requestTypeFilter)
+        && (!entityTypeFilter || request.entity_type === entityTypeFilter)
+        && (!priorityFilter || request.priority === priorityFilter || (priorityFilter === 'urgent' && request.is_urgent));
     });
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `search_requests_export_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setShowExportMenu(false);
+    return [...filtered].sort((first, second) => {
+      if (sortBy === 'oldest') return new Date(first.created_at || 0) - new Date(second.created_at || 0);
+      if (sortBy === 'priority') return (priorityOrder[second.priority] || 0) - (priorityOrder[first.priority] || 0);
+      if (sortBy === 'status') return (statusOrder[first.status] || 99) - (statusOrder[second.status] || 99);
+      if (sortBy === 'subject') return requestSubject(first).localeCompare(requestSubject(second));
+      return new Date(second.created_at || 0) - new Date(first.created_at || 0);
+    });
+  }, [entityTypeFilter, priorityFilter, requestTypeFilter, requests, searchQuery, sortBy, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const visibleRequests = filteredRequests.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const firstResult = filteredRequests.length ? ((currentPage - 1) * PAGE_SIZE) + 1 : 0;
+  const lastResult = Math.min(currentPage * PAGE_SIZE, filteredRequests.length);
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('');
+    setRequestTypeFilter('');
+    setEntityTypeFilter('');
+    setPriorityFilter('');
+    setSortBy('newest');
   };
 
-  // Export to Excel
-  const exportToExcel = () => {
-    const exportData = requests.map(r => ({
-      'Request ID': r.id || 'N/A',
-      'Title': r.entity_name || 'N/A',
-      'Category': getRequestTypeLabel(r.request_type),
-      'Status': getStatusLabel(r.status),
-      'Submitted Date': formatDate(r.created_at),
-      'Assigned To': r.assigned_to || '-',
-      'To be Completed': r.completed_at ? formatDate(r.completed_at) : 'N/A',
-      'Requester': r.requester_name || 'N/A',
-      'Requester Email': r.requester_email || 'N/A',
-      'Priority': r.priority || 'MEDIUM',
-      'Urgent': r.is_urgent ? 'Yes' : 'No'
-    }));
-
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    XLSX.utils.book_append_sheet(wb, ws, 'Search Requests');
-    XLSX.writeFile(wb, `search_requests_export_${new Date().toISOString().split('T')[0]}.xlsx`);
-    setShowExportMenu(false);
+  const applySummaryFilter = (status = '') => {
+    setActiveView('queue');
+    setStatusFilter(status);
   };
 
-  // Handle page change
-  const handlePageChange = (newPage) => {
-    setPagination(prev => ({ ...prev, page: newPage }));
+  const exportQueue = () => {
+    if (!filteredRequests.length) return;
+    const headings = ['Request', 'Subject', 'Case reference', 'Request type', 'Entity type', 'Requester', 'Email', 'Priority', 'Urgent', 'Status', 'Owner', 'Submitted'];
+    const rows = filteredRequests.map((request) => [
+      requestReference(request),
+      requestSubject(request),
+      request.case_suit_number || '',
+      labelFor(REQUEST_TYPE_OPTIONS, request.request_type, request.request_type),
+      labelFor(ENTITY_TYPE_OPTIONS, request.entity_type, request.entity_type),
+      request.requester_name || '',
+      request.requester_email || '',
+      labelFor(PRIORITY_OPTIONS, request.priority, request.priority),
+      request.is_urgent ? 'Yes' : 'No',
+      labelFor(STATUS_OPTIONS, request.status, request.status),
+      request.assigned_to || '',
+      formatDate(request.created_at),
+    ]);
+    const escape = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const csv = [headings, ...rows].map((row) => row.map(escape).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `search-requests-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
-  if (selectedRequest) {
-    return (
-      <SearchRequestDetails 
-        request={selectedRequest} 
-        onBack={() => {
-          setSelectedRequest(null);
-          loadRequests();
-        }} 
-        userInfo={userInfo} 
-        onNavigate={onNavigate} 
-        onLogout={onLogout}
-        onStartInvestigation={handleStartInvestigation}
-        onMarkCompleted={handleMarkCompleted}
-      />
-    );
-  }
+  const openRequest = async (request) => {
+    setSelectedRequest(request);
+    setRequestDetail(null);
+    setDetailTab('request');
+    setDetailLoading(true);
+    setError('');
+    try {
+      const detail = await apiGet(`/request-details/${request.id}`);
+      setRequestDetail(detail);
+      setProcessingForm({
+        status: detail.status || 'pending',
+        assigned_to: detail.assigned_to || '',
+        priority: detail.priority || 'medium',
+        is_urgent: Boolean(detail.is_urgent),
+        admin_notes: detail.admin_notes || '',
+        response_message: detail.response_message || '',
+      });
+    } catch (loadError) {
+      setError(loadError.detail || loadError.message || 'The request details could not be loaded.');
+    } finally {
+      setDetailLoading(false);
+    }
+  };
 
-  return (
-    <div className="bg-[#F7F8FA] min-h-screen w-full">
-      {/* Header */}
-      <AdminHeader userInfo={userInfo} onNavigate={onNavigate} onLogout={onLogout} />
+  const closeRequest = () => {
+    setSelectedRequest(null);
+    setRequestDetail(null);
+  };
 
-      {/* Main Content */}
-      <div className="px-6 w-full">
-        <div className="flex flex-col items-start w-full bg-white py-4 gap-6 rounded-lg">
-          {/* Breadcrumb */}
-          <span className="text-[#525866] text-xs whitespace-nowrap px-6">SEARCH REQUESTS</span>
+  const updateProcessingField = (field, value) => {
+    setProcessingForm((current) => ({ ...current, [field]: value }));
+  };
 
-          {/* Title */}
-          <div className="flex flex-col items-start px-6 gap-2">
-            <div className="flex items-center gap-1">
-              <FileText className="w-4 h-4 text-[#040E1B] flex-shrink-0" />
-              <span className="text-[#040E1B] text-xl font-bold whitespace-nowrap">Search requests</span>
-            </div>
-            <span className="text-[#070810] text-sm whitespace-nowrap">All search requests are listed here</span>
-          </div>
+  const saveProcessing = async () => {
+    if (!requestDetail) return;
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const updated = await apiPut(`/request-details/${requestDetail.id}`, {
+        status: processingForm.status,
+        assigned_to: processingForm.assigned_to.trim() || null,
+        priority: processingForm.priority,
+        is_urgent: processingForm.is_urgent,
+        admin_notes: processingForm.admin_notes.trim() || null,
+        response_message: processingForm.response_message.trim() || null,
+      });
+      setRequestDetail(updated);
+      setRequests((current) => current.map((request) => (
+        request.id === updated.id ? { ...request, ...updated } : request
+      )));
+      try {
+        setStats(mergeStats(await apiGet('/request-details/stats')));
+      } catch {
+        setStats((current) => current);
+      }
+      setNotice(`${requestReference(updated)} was updated.`);
+      setDetailTab('request');
+    } catch (saveError) {
+      setError(saveError.detail || saveError.message || 'The request could not be updated.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-          {/* Stats Card */}
-          <div className="flex items-center bg-white py-2 px-6 rounded-lg border border-solid border-[#D4E1EA]">
-            <div className="w-10 h-10 mr-3 rounded-lg bg-[#F59E0B]/10 flex items-center justify-center flex-shrink-0">
-              <BarChart3 className="w-6 h-6 text-[#F59E0B]" />
-            </div>
-            <div className="flex flex-col items-start gap-1">
-              <span className="text-[#868C98] text-xs whitespace-nowrap">Total amount of Requests</span>
-              <span className="text-[#F59E0B] text-base whitespace-nowrap">{stats.total}</span>
-            </div>
-          </div>
-
-          {/* Filter Tabs */}
-          <div className="flex flex-col items-start w-full px-6">
-            <div className="flex items-start p-1 gap-4">
-              {filters.map((filter) => {
-                let count = 0;
-                if (filter.id === 'all') {
-                  count = stats.total;
-                } else {
-                  // This would need to be calculated from filtered data
-                  count = requests.filter(r => {
-                    if (filter.requestType === 'profile_information') return r.request_type === 'profile_information';
-                    if (filter.requestType === 'management_details') return r.request_type === 'management_details';
-                    if (filter.requestType === 'case_details') return r.request_type === 'case_details';
-                    if (filter.requestType === 'other') {
-                      return !['profile_information', 'management_details', 'case_details'].includes(r.request_type);
-                    }
-                    return false;
-                  }).length;
-                }
-
-                return (
-                <button
-                  key={filter.id}
-                  onClick={() => setActiveFilter(filter.id)}
-                  className={`flex flex-col items-start pb-2 ${
-                    activeFilter === filter.id ? 'border-b-2 border-[#022658]' : ''
-                  }`}
-                >
-                  <span
-                    className={`text-base whitespace-nowrap ${
-                      activeFilter === filter.id ? 'text-[#022658] font-bold' : 'text-[#525866]'
-                    }`}
-                  >
-                      {filter.label} ({count})
-                  </span>
-                </button>
-                );
-              })}
-            </div>
-
-            {/* Table and Pagination */}
-            <div className="flex flex-col items-start w-full gap-4">
-              <div className="flex flex-col w-full bg-white py-4 gap-4 rounded-3xl">
-                {/* Search, Filter and Export */}
-                <div className="flex justify-between items-start w-full px-4">
-                  <div className="flex-1 pb-0.5 mr-4">
-                    <div className="flex items-center self-stretch bg-[#F7F8FA] py-[7px] px-2 gap-1.5 rounded-[5px] border border-solid border-[#F7F8FA]">
-                      <Search className="w-[11px] h-[11px] text-[#868C98]" />
-                      <input
-                        type="text"
-                        placeholder="Search here"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="flex-1 text-[#868C98] bg-transparent text-[10px] border-0 outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-start gap-[7px] mr-4">
-                    <div ref={filterMenuRef} className="relative">
-                      <button
-                        onClick={() => setShowFilterMenu(!showFilterMenu)}
-                        className="flex items-center py-[7px] px-[9px] gap-1.5 rounded border border-solid border-[#D4E1EA] cursor-pointer hover:bg-gray-50"
-                      >
-                        <Filter className="w-[11px] h-[11px] text-[#525866]" />
-                      <span className="text-[#525866] text-xs whitespace-nowrap">Filter</span>
-                      </button>
-                      {showFilterMenu && (
-                        <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-3">
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-xs text-gray-600 mb-1">Status</label>
-                              <select
-                                value={statusFilter}
-                                onChange={(e) => {
-                                  setStatusFilter(e.target.value);
-                                  setPagination(prev => ({ ...prev, page: 1 }));
-                                }}
-                                className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
-                              >
-                                <option value="">All Statuses</option>
-                                <option value="pending">Pending</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="completed">Completed</option>
-                                <option value="rejected">Rejected</option>
-                                <option value="cancelled">Cancelled</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-xs text-gray-600 mb-1">Request Type</label>
-                              <select
-                                value={requestTypeFilter}
-                                onChange={(e) => {
-                                  setRequestTypeFilter(e.target.value);
-                                  setPagination(prev => ({ ...prev, page: 1 }));
-                                }}
-                                className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
-                              >
-                                <option value="">All Types</option>
-                                <option value="profile_information">Person verification</option>
-                                <option value="case_details">Case history research</option>
-                                <option value="management_details">Management Details</option>
-                                <option value="legal_documents">Legal Documents</option>
-                                <option value="other">Other</option>
-                              </select>
-                            </div>
-                            {(statusFilter || requestTypeFilter) && (
-                              <button
-                                onClick={() => {
-                                  setStatusFilter('');
-                                  setRequestTypeFilter('');
-                                  setPagination(prev => ({ ...prev, page: 1 }));
-                                }}
-                                className="w-full text-xs text-blue-600 hover:text-blue-800"
-                              >
-                                Clear Filters
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <div ref={sortMenuRef} className="relative">
-                      <button
-                        onClick={() => setShowSortMenu(!showSortMenu)}
-                        className="flex items-center py-[7px] px-[9px] gap-[5px] rounded border border-solid border-[#D4E1EA] cursor-pointer hover:bg-gray-50"
-                      >
-                        <ChevronDown className="w-[11px] h-[11px] text-[#525866]" />
-                      <span className="text-[#525866] text-xs whitespace-nowrap">Sort</span>
-                      </button>
-                      {showSortMenu && (
-                        <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 p-3">
-                          <div className="space-y-2">
-                            <button
-                              onClick={() => {
-                                setSortBy('created_at');
-                                setSortOrder('desc');
-                                setShowSortMenu(false);
-                                setPagination(prev => ({ ...prev, page: 1 }));
-                              }}
-                              className={`w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-100 ${
-                                sortBy === 'created_at' && sortOrder === 'desc' ? 'bg-blue-50 text-blue-600' : ''
-                              }`}
-                            >
-                              Date (Newest First)
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSortBy('created_at');
-                                setSortOrder('asc');
-                                setShowSortMenu(false);
-                                setPagination(prev => ({ ...prev, page: 1 }));
-                              }}
-                              className={`w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-100 ${
-                                sortBy === 'created_at' && sortOrder === 'asc' ? 'bg-blue-50 text-blue-600' : ''
-                              }`}
-                            >
-                              Date (Oldest First)
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSortBy('status');
-                                setSortOrder('asc');
-                                setShowSortMenu(false);
-                                setPagination(prev => ({ ...prev, page: 1 }));
-                              }}
-                              className={`w-full text-left text-xs px-2 py-1 rounded hover:bg-gray-100 ${
-                                sortBy === 'status' ? 'bg-blue-50 text-blue-600' : ''
-                              }`}
-                            >
-                              Status (A-Z)
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div ref={exportMenuRef} className="relative">
-                    <button
-                      onClick={() => setShowExportMenu(!showExportMenu)}
-                      className="flex items-center bg-transparent text-left py-1 px-4 gap-[7px] rounded-lg border border-solid border-[#F59E0B] hover:bg-orange-50 transition-colors"
-                    >
-                    <span className="text-[#F59E0B] text-base whitespace-nowrap">Export list</span>
-                      <Download className="w-4 h-4 text-[#F59E0B]" />
-                    </button>
-                    {showExportMenu && (
-                      <div className="absolute right-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                        <button
-                          onClick={exportToCSV}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <Download className="w-4 h-4" />
-                          Export to CSV
-                        </button>
-                        <button
-                          onClick={exportToExcel}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <Download className="w-4 h-4" />
-                          Export to Excel
-                  </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Request Table */}
-                {loading ? (
-                  <div className="flex justify-center items-center py-12">
-                    <span className="text-gray-500">Loading...</span>
-                  </div>
-                ) : requests.length === 0 ? (
-                  <div className="flex justify-center items-center py-12">
-                    <span className="text-gray-500">No search requests found</span>
-                  </div>
-                ) : (
-                <div className="flex flex-col w-full gap-1 rounded-[14px] border border-solid border-[#E5E8EC] overflow-hidden">
-                  {/* Table Header */}
-                  <div className="flex items-start w-full bg-[#F4F6F9] py-4 px-4 gap-3">
-                    <div className="flex flex-col items-start w-[13%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Request ID</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[18%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Title</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[16%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Category</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[13%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Status</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[14%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Submitted Date</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[13%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">Assigned To</span>
-                    </div>
-                    <div className="flex flex-col items-start w-[13%] py-[7px]">
-                      <span className="text-[#070810] text-sm font-bold whitespace-nowrap">To be Completed</span>
-                    </div>
-                  </div>
-
-                  {/* Table Rows */}
-                    {requests.map((item, idx) => {
-                      const statusInfo = getStatusClass(item.status);
-                    return (
-                        <div 
-                          key={idx} 
-                          onClick={() => setSelectedRequest(item)} 
-                          className="flex items-center w-full py-3 px-4 gap-3 hover:bg-blue-50 cursor-pointer transition-colors"
-                        >
-                        <div className="flex flex-col items-start w-[13%] py-[7px]">
-                            <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">
-                              {item.id ? `REQ${item.id.toString().padStart(4, '0')}` : 'N/A'}
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-start w-[18%] py-[7px]">
-                            <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">
-                              {item.entity_name || item.case_suit_number || 'Untitled Request'}
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-start w-[16%] py-[7px]">
-                            <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">
-                              {getRequestTypeLabel(item.request_type)}
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-start w-[13%] py-[7px]">
-                            <span className={`text-sm font-bold whitespace-nowrap overflow-hidden text-ellipsis w-full px-2 py-1 rounded ${statusInfo.bg} ${statusInfo.text}`}>
-                              {getStatusLabel(item.status)}
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-start w-[14%] py-[7px]">
-                            <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">
-                              {formatDate(item.created_at)}
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-start w-[13%] py-[7px]">
-                            <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">
-                              {item.assigned_to || '-'}
-                            </span>
-                        </div>
-                        <div className="flex flex-col items-start w-[13%] py-[7px]">
-                            <span className="text-[#070810] text-sm whitespace-nowrap overflow-hidden text-ellipsis w-full">
-                              {item.completed_at ? formatDate(item.completed_at) : 'N/A'}
-                            </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                )}
-              </div>
-
-              {/* Pagination */}
-              {!loading && requests.length > 0 && (
-                <div className="flex items-center justify-start w-full">
-                  <span className="text-[#525866] text-sm mr-[42px] whitespace-nowrap">
-                    {((pagination.page - 1) * pagination.limit) + 1}-{Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
-                  </span>
-                  <button 
-                    onClick={() => handlePageChange(pagination.page - 1)}
-                    disabled={pagination.page === 1}
-                    className="flex items-start bg-white text-left w-[70px] py-2 px-3 mr-1.5 gap-1 rounded border border-solid border-[#D4E1EA] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                  <ChevronLeft className="w-4 h-4 text-[#525866]" />
-                  <span className="text-[#525866] text-xs whitespace-nowrap">Back</span>
-                </button>
-                  
-                  {/* Page Numbers */}
-                  {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                    let pageNum;
-                    if (pagination.totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (pagination.page <= 3) {
-                      pageNum = i + 1;
-                    } else if (pagination.page >= pagination.totalPages - 2) {
-                      pageNum = pagination.totalPages - 4 + i;
-                    } else {
-                      pageNum = pagination.page - 2 + i;
-                    }
-                    
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => handlePageChange(pageNum)}
-                        className={`flex flex-col items-start py-[7px] px-2 mr-1.5 rounded border border-solid ${
-                          pagination.page === pageNum
-                            ? 'bg-[#022658] border-[#022658]'
-                            : 'bg-white border-[#D4E1EA] hover:bg-gray-50'
-                        }`}
-                      >
-                        <span className={`text-xs whitespace-nowrap ${
-                          pagination.page === pageNum ? 'text-white font-bold' : 'text-[#525866]'
-                        }`}>
-                          {pageNum}
-                        </span>
-                      </button>
-                    );
-                  })}
-                  
-                  <button 
-                    onClick={() => handlePageChange(pagination.page + 1)}
-                    disabled={pagination.page >= pagination.totalPages}
-                    className="flex items-start bg-white text-left w-[68px] py-2 px-3 mr-10 gap-1.5 rounded border border-solid border-[#D4E1EA] hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                  <span className="text-[#525866] text-xs whitespace-nowrap">Next</span>
-                  <ChevronRight className="w-4 h-4 text-[#525866]" />
-                </button>
-                <div className="flex items-center w-[119px]">
-                  <span className="text-[#040E1B] text-sm mr-[11px] whitespace-nowrap">Page</span>
-                    <input
-                      type="number"
-                      min="1"
-                      max={pagination.totalPages}
-                      value={pagination.page}
-                      onChange={(e) => {
-                        const page = parseInt(e.target.value);
-                        if (page >= 1 && page <= pagination.totalPages) {
-                          handlePageChange(page);
-                        }
-                      }}
-                      className="flex flex-col items-start bg-white w-[51px] py-[5px] pl-2 mr-2 rounded border border-solid border-[#F59E0B] text-sm"
-                    />
-                    <span 
-                      onClick={() => handlePageChange(pagination.page)}
-                      className="text-[#F59E0B] text-sm font-bold cursor-pointer hover:underline whitespace-nowrap"
-                    >
-                      Go
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+  const renderQueue = () => (
+    <section className="dd-panel dd-request-queue-panel">
+      <header className="dd-panel-header">
+        <div>
+          <h3>Request queue</h3>
+          <p>Review, assign and resolve information requests from entity and case records.</p>
         </div>
+        <span className="dd-count-badge">{formatNumber(filteredRequests.length)} shown</span>
+      </header>
+
+      <div className="dd-request-filter-bar">
+        <label className="dd-request-search-field">
+          <span>Search queue</span>
+          <div className="dd-search-control">
+            <Search size={14} />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Request, subject, suit number or requester"
+            />
+          </div>
+        </label>
+        <label>
+          <span>Status</span>
+          <select className="dd-select-control" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+            <option value="">All statuses</option>
+            {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Request type</span>
+          <select className="dd-select-control" value={requestTypeFilter} onChange={(event) => setRequestTypeFilter(event.target.value)}>
+            <option value="">All request types</option>
+            {REQUEST_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Entity</span>
+          <select className="dd-select-control" value={entityTypeFilter} onChange={(event) => setEntityTypeFilter(event.target.value)}>
+            <option value="">All entity types</option>
+            {ENTITY_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Priority</span>
+          <select className="dd-select-control" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
+            <option value="">All priorities</option>
+            {PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Sort</span>
+          <select className="dd-select-control" value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="priority">Highest priority</option>
+            <option value="status">Workflow status</option>
+            <option value="subject">Subject A-Z</option>
+          </select>
+        </label>
+        <button type="button" className="dd-button dd-button-secondary" onClick={clearFilters}>Clear</button>
       </div>
 
-      {/* Assign Modal */}
-      {showAssignModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setShowAssignModal(false)}></div>
-          <div className="flex min-h-full items-center justify-center p-4">
-            <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full">
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Assign Request</h3>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Assign to</label>
-                  <input
-                    type="text"
-                    value={assignedUser}
-                    onChange={(e) => setAssignedUser(e.target.value)}
-                    placeholder="Enter username or name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => {
-                      setShowAssignModal(false);
-                      setAssignedUser('');
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => handleAssign(showActionMenu)}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-                  >
-                    Assign
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+      {loading ? (
+        <div className="dd-loading-state"><Loader2 className="dd-spin" size={17} /> Loading request queue...</div>
+      ) : !visibleRequests.length ? (
+        <div className="dd-empty-state dd-request-empty-state">
+          <Inbox size={27} />
+          <h3>{requests.length ? 'No requests match these filters' : 'No search requests are waiting'}</h3>
+          <p>{requests.length ? 'Clear or adjust the queue filters to see other requests.' : 'Requests submitted from case and entity records will appear here for triage.'}</p>
+        </div>
+      ) : (
+        <div className="dd-table-wrap dd-request-table">
+          <table className="dd-data-table">
+            <thead>
+              <tr>
+                <th>Request</th>
+                <th>Subject</th>
+                <th>Request type</th>
+                <th>Entity</th>
+                <th>Requester</th>
+                <th>Priority</th>
+                <th>Submitted</th>
+                <th>Owner</th>
+                <th>Status</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRequests.map((request) => (
+                <tr key={request.id}>
+                  <td><span className="dd-mono">{requestReference(request)}</span></td>
+                  <td>
+                    <button type="button" className="dd-company-record-link" onClick={() => openRequest(request)}>
+                      <strong>{requestSubject(request)}</strong>
+                    </button>
+                    <small>{request.case_suit_number || 'No case reference'}</small>
+                  </td>
+                  <td>{labelFor(REQUEST_TYPE_OPTIONS, request.request_type, request.request_type)}</td>
+                  <td>{labelFor(ENTITY_TYPE_OPTIONS, request.entity_type, request.entity_type)}</td>
+                  <td><strong>{request.requester_name || 'Not supplied'}</strong><small>{request.requester_email || 'No email'}</small></td>
+                  <td><span className={`dd-status-pill ${priorityClass(request.priority, request.is_urgent)}`}>{request.is_urgent ? 'Urgent' : labelFor(PRIORITY_OPTIONS, request.priority, request.priority)}</span></td>
+                  <td className="dd-request-date">{formatDate(request.created_at)}</td>
+                  <td>{request.assigned_to || 'Unassigned'}</td>
+                  <td><span className={`dd-status-pill ${statusClass(request.status)}`}>{labelFor(STATUS_OPTIONS, request.status, request.status)}</span></td>
+                  <td>
+                    <button type="button" className="dd-icon-button" onClick={() => openRequest(request)} aria-label={`Open ${requestReference(request)}`} title="Open request">
+                      <Eye size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+
+      <footer className="dd-request-pagination">
+        <span>Records {firstResult}-{lastResult} of {formatNumber(filteredRequests.length)}</span>
+        <div>
+          <button type="button" className="dd-button dd-button-secondary" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage <= 1}>
+            <ChevronLeft size={13} /> Prev
+          </button>
+          <span>Page {currentPage} of {totalPages}</span>
+          <button type="button" className="dd-button dd-button-secondary" onClick={() => setPage((value) => Math.min(totalPages, value + 1))} disabled={currentPage >= totalPages}>
+            Next <ChevronRight size={13} />
+          </button>
+        </div>
+      </footer>
+    </section>
+  );
+
+  const renderWorkload = () => (
+    <div className="dd-request-workload">
+      <div className="dd-request-workload-grid">
+        <BreakdownPanel
+          title="Workflow distribution"
+          description="Current request volume by processing status."
+          values={stats.requests_by_status}
+          options={STATUS_OPTIONS}
+          total={stats.total_requests}
+        />
+        <BreakdownPanel
+          title="Request mix"
+          description="Information requested across the platform."
+          values={stats.requests_by_type}
+          options={REQUEST_TYPE_OPTIONS}
+          total={stats.total_requests}
+        />
+        <BreakdownPanel
+          title="Entity coverage"
+          description="Subjects represented in the request queue."
+          values={stats.requests_by_entity}
+          options={ENTITY_TYPE_OPTIONS}
+          total={stats.total_requests}
+        />
+        <section className="dd-panel">
+          <header className="dd-panel-header">
+            <div>
+              <h3>Current attention</h3>
+              <p>Items that should guide the next queue review.</p>
+            </div>
+            <UserRoundCheck size={16} />
+          </header>
+          <div className="dd-request-attention-list">
+            <button type="button" onClick={() => applySummaryFilter('pending')}>
+              <CircleDot size={15} /><span><strong>Awaiting triage</strong><small>Not yet taken into active review</small></span><b>{formatNumber(stats.pending_requests)}</b>
+            </button>
+            <button type="button" onClick={() => applySummaryFilter('in_progress')}>
+              <Clock3 size={15} /><span><strong>In progress</strong><small>Assigned or currently being investigated</small></span><b>{formatNumber(stats.in_progress_requests)}</b>
+            </button>
+            <button type="button" onClick={() => { setActiveView('queue'); setPriorityFilter('urgent'); }}>
+              <AlertTriangle size={15} /><span><strong>Urgent requests</strong><small>Flagged for accelerated handling</small></span><b>{formatNumber(stats.urgent_requests)}</b>
+            </button>
+          </div>
+        </section>
+      </div>
     </div>
+  );
+
+  const renderControls = () => (
+    <div className="dd-request-controls-view">
+      <section className="dd-panel">
+        <header className="dd-panel-header">
+          <div>
+            <h3>Request handling controls</h3>
+            <p>Operating controls applied from submission through resolution.</p>
+          </div>
+          <ShieldCheck size={16} />
+        </header>
+        <div className="dd-table-wrap dd-request-controls-table">
+          <table className="dd-data-table">
+            <thead><tr><th>Control</th><th>Operational practice</th><th>Evidence retained</th><th>State</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Submission capture</strong></td><td>Request type, subject, requester and supporting message are recorded on receipt.</td><td>Request record and creation timestamp</td><td><span className="dd-status-pill is-clear">Active</span></td></tr>
+              <tr><td><strong>Triage workflow</strong></td><td>Pending, in-progress and final states keep work visible from intake to closure.</td><td>Status and update timestamp</td><td><span className="dd-status-pill is-clear">Active</span></td></tr>
+              <tr><td><strong>Ownership</strong></td><td>Requests can be assigned to a named workspace administrator or analyst.</td><td>Assigned owner</td><td><span className="dd-status-pill is-clear">Active</span></td></tr>
+              <tr><td><strong>Priority handling</strong></td><td>Priority and urgent flags separate routine work from time-sensitive requests.</td><td>Priority and urgency flag</td><td><span className="dd-status-pill is-clear">Active</span></td></tr>
+              <tr><td><strong>Decision record</strong></td><td>Internal notes and the response message are retained with the request.</td><td>Admin notes and response</td><td><span className="dd-status-pill is-clear">Active</span></td></tr>
+              <tr><td><strong>Source context</strong></td><td>Submission origin is preserved to support review and incident investigation.</td><td>IP, referrer and user agent</td><td><span className="dd-status-pill is-clear">Active</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div className="dd-register-note dd-request-retention-note">
+        <ShieldCheck size={16} />
+        <div><strong>Record history is retained</strong><span>This workspace provides controlled processing actions only. Request records are not removed from this interface.</span></div>
+      </div>
+    </div>
+  );
+
+  return (
+    <main className="dd-module-shell dd-search-requests">
+      <header className="dd-module-heading">
+        <div>
+          <p className="dd-eyebrow">Request operations</p>
+          <h2>Search request queue</h2>
+          <p>Triage information requests submitted from case, person and organisation records.</p>
+        </div>
+        <div className="dd-heading-actions">
+          <button type="button" className="dd-button dd-button-secondary" onClick={() => loadData({ quiet: true })} disabled={refreshing}>
+            <RefreshCw className={refreshing ? 'dd-spin' : ''} size={14} /> Refresh
+          </button>
+          <button type="button" className="dd-button dd-button-primary" onClick={exportQueue} disabled={!filteredRequests.length}>
+            <Download size={14} /> Export CSV
+          </button>
+        </div>
+      </header>
+
+      {error && <div className="dd-inline-alert is-error"><span>{error}</span><button type="button" onClick={() => setError('')} aria-label="Dismiss error"><X size={14} /></button></div>}
+      {notice && <div className="dd-inline-alert is-info"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message"><X size={14} /></button></div>}
+
+      <div>
+        <div className="dd-gazette-summary dd-request-summary">
+          <button type="button" className={!statusFilter ? 'is-active' : ''} onClick={() => applySummaryFilter('')}>
+            <FileSearch size={17} /><span>Total requests</span><strong>{formatNumber(stats.total_requests)}</strong><small>{formatNumber(stats.urgent_requests)} urgent</small>
+          </button>
+          <button type="button" className={statusFilter === 'pending' ? 'is-active' : ''} onClick={() => applySummaryFilter('pending')}>
+            <CircleDot size={17} /><span>Awaiting triage</span><strong>{formatNumber(stats.pending_requests)}</strong><small>Pending review</small>
+          </button>
+          <button type="button" className={statusFilter === 'in_progress' ? 'is-active' : ''} onClick={() => applySummaryFilter('in_progress')}>
+            <Clock3 size={17} /><span>In progress</span><strong>{formatNumber(stats.in_progress_requests)}</strong><small>Active work</small>
+          </button>
+          <button type="button" className={statusFilter === 'completed' ? 'is-active' : ''} onClick={() => applySummaryFilter('completed')}>
+            <CheckCircle2 size={17} /><span>Completed</span><strong>{formatNumber(stats.completed_requests)}</strong><small>Resolved</small>
+          </button>
+        </div>
+        <nav className="dd-gazette-dataset-tabs" aria-label="Search request views">
+          <button type="button" className={activeView === 'queue' ? 'is-active' : ''} onClick={() => setActiveView('queue')}><strong>Queue</strong><span>{formatNumber(stats.total_requests)}</span></button>
+          <button type="button" className={activeView === 'workload' ? 'is-active' : ''} onClick={() => setActiveView('workload')}><BarChart3 size={13} /><strong>Workload</strong></button>
+          <button type="button" className={activeView === 'controls' ? 'is-active' : ''} onClick={() => setActiveView('controls')}><ShieldCheck size={13} /><strong>Controls</strong></button>
+        </nav>
+      </div>
+
+      {activeView === 'queue' && renderQueue()}
+      {activeView === 'workload' && renderWorkload()}
+      {activeView === 'controls' && renderControls()}
+
+      {selectedRequest && (
+        <div className="dd-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeRequest(); }}>
+          <section className="dd-modal dd-request-detail-modal" role="dialog" aria-modal="true" aria-labelledby="request-detail-title">
+            <header>
+              <div>
+                <h3 id="request-detail-title">{requestSubject(requestDetail || selectedRequest)}</h3>
+                <p>{requestReference(requestDetail || selectedRequest)} · {labelFor(REQUEST_TYPE_OPTIONS, (requestDetail || selectedRequest).request_type)}</p>
+              </div>
+              <button type="button" onClick={closeRequest} aria-label="Close request"><X size={16} /></button>
+            </header>
+
+            {detailLoading ? (
+              <div className="dd-loading-state"><Loader2 className="dd-spin" size={17} /> Loading request details...</div>
+            ) : requestDetail ? (
+              <>
+                <div className="dd-gazette-facts dd-request-facts">
+                  <div><FileSearch size={14} /><span>Reference</span><strong>{requestReference(requestDetail)}</strong></div>
+                  <div><CircleDot size={14} /><span>Status</span><strong>{labelFor(STATUS_OPTIONS, requestDetail.status, requestDetail.status)}</strong></div>
+                  <div><AlertTriangle size={14} /><span>Priority</span><strong>{requestDetail.is_urgent ? 'Urgent' : labelFor(PRIORITY_OPTIONS, requestDetail.priority, requestDetail.priority)}</strong></div>
+                  <div><UserRoundCheck size={14} /><span>Owner</span><strong>{requestDetail.assigned_to || 'Unassigned'}</strong></div>
+                </div>
+                <nav className="dd-gazette-detail-tabs" aria-label="Request detail sections">
+                  <button type="button" className={detailTab === 'request' ? 'is-active' : ''} onClick={() => setDetailTab('request')}>Request</button>
+                  <button type="button" className={detailTab === 'processing' ? 'is-active' : ''} onClick={() => setDetailTab('processing')}>Processing</button>
+                  <button type="button" className={detailTab === 'audit' ? 'is-active' : ''} onClick={() => setDetailTab('audit')}>Audit</button>
+                </nav>
+
+                <div className="dd-modal-body dd-request-detail-body">
+                  {detailTab === 'request' && (
+                    <dl className="dd-request-detail-list">
+                      <DetailField label="Subject" value={requestSubject(requestDetail)} />
+                      <DetailField label="Entity type" value={labelFor(ENTITY_TYPE_OPTIONS, requestDetail.entity_type, requestDetail.entity_type)} />
+                      <DetailField label="Entity ID" value={requestDetail.entity_id ? String(requestDetail.entity_id) : ''} />
+                      <DetailField label="Case suit number" value={requestDetail.case_suit_number} />
+                      <DetailField label="Requester" value={requestDetail.requester_name} />
+                      <DetailField label="Organisation" value={requestDetail.requester_organization} />
+                      <DetailField label="Email" value={requestDetail.requester_email} />
+                      <DetailField label="Phone" value={requestDetail.requester_phone} />
+                      <DetailField label="Submitted" value={formatDate(requestDetail.created_at)} />
+                      <DetailField label="Last updated" value={formatDate(requestDetail.updated_at)} />
+                      <DetailField label="Request message" value={requestDetail.message} wide />
+                      <DetailField label="Response to requester" value={requestDetail.response_message} wide />
+                    </dl>
+                  )}
+
+                  {detailTab === 'processing' && (
+                    <div className="dd-request-processing-form">
+                      <div className="dd-request-processing-grid">
+                        <label><span>Status</span><select value={processingForm.status} onChange={(event) => updateProcessingField('status', event.target.value)}>{STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                        <label><span>Priority</span><select value={processingForm.priority} onChange={(event) => updateProcessingField('priority', event.target.value)}>{PRIORITY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+                        <label className="is-wide"><span>Assigned to</span><div className="dd-request-assignee"><input value={processingForm.assigned_to} onChange={(event) => updateProcessingField('assigned_to', event.target.value)} placeholder="Workspace administrator or analyst" /><button type="button" className="dd-button dd-button-secondary" onClick={() => updateProcessingField('assigned_to', currentUser)}>Assign to me</button></div></label>
+                      </div>
+                      <label className="dd-request-urgent-control"><input type="checkbox" checked={processingForm.is_urgent} onChange={(event) => updateProcessingField('is_urgent', event.target.checked)} /><span><strong>Urgent handling</strong><small>Flag this request for accelerated review.</small></span></label>
+                      <label><span>Internal notes</span><textarea className="dd-textarea" rows="4" value={processingForm.admin_notes} onChange={(event) => updateProcessingField('admin_notes', event.target.value)} placeholder="Record analysis, handover context or internal decisions." /></label>
+                      <label><span>Response to requester</span><textarea className="dd-textarea" rows="4" value={processingForm.response_message} onChange={(event) => updateProcessingField('response_message', event.target.value)} placeholder="Record the response or outcome communicated to the requester." /></label>
+                    </div>
+                  )}
+
+                  {detailTab === 'audit' && (
+                    <dl className="dd-request-detail-list">
+                      <DetailField label="Created" value={formatDate(requestDetail.created_at)} />
+                      <DetailField label="Updated" value={formatDate(requestDetail.updated_at)} />
+                      <DetailField label="Completed" value={formatDate(requestDetail.completed_at)} />
+                      <DetailField label="Source IP" value={requestDetail.source_ip} />
+                      <DetailField label="Referrer" value={requestDetail.referrer} wide />
+                      <DetailField label="User agent" value={requestDetail.user_agent} wide />
+                    </dl>
+                  )}
+
+                  <div className="dd-modal-actions">
+                    <button type="button" className="dd-button dd-button-secondary" onClick={closeRequest}>Close</button>
+                    {detailTab === 'processing' && <button type="button" className="dd-button dd-button-primary" onClick={saveProcessing} disabled={saving}>{saving && <Loader2 className="dd-spin" size={13} />} Save changes</button>}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="dd-empty-state"><AlertTriangle size={22} /><div><strong>Request details are unavailable</strong><p>Close this panel and try opening the request again.</p></div></div>
+            )}
+          </section>
+        </div>
+      )}
+    </main>
   );
 };
 

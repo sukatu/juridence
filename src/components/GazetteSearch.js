@@ -32,6 +32,10 @@ const GazetteSearch = ({ onGazetteSelect, showActions = false, personId = null, 
     { value: 'CHANGE_OF_DATE_OF_BIRTH', label: 'Change of Date of Birth', icon: Calendar, color: 'green' },
     { value: 'CHANGE_OF_PLACE_OF_BIRTH', label: 'Change of Place of Birth', icon: MapPin, color: 'orange' },
     { value: 'APPOINTMENT_OF_MARRIAGE_OFFICERS', label: 'Appointment of Marriage Officers', icon: User, color: 'purple' },
+    { value: 'COMPANY_WINDING_UP', label: 'Winding Up of a Company', icon: Building, color: 'red' },
+    { value: 'COMPANY_DISSOLUTION', label: 'Dissolution of Companies', icon: Building, color: 'red' },
+    { value: 'COMPANY_STRIKE_OFF_INTENTION', label: 'Intention to Strike Off', icon: Building, color: 'orange' },
+    { value: 'EXTERNAL_COMPANY_CESSATION', label: 'Cessation of External Company', icon: Building, color: 'gray' },
     
     // General Categories
     { value: 'LEGAL_NOTICE', label: 'Legal Notice', icon: FileText, color: 'blue' },

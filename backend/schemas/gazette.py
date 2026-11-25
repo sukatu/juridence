@@ -9,6 +9,10 @@ class GazetteType(str, Enum):
     CHANGE_OF_DATE_OF_BIRTH = "CHANGE_OF_DATE_OF_BIRTH"
     CHANGE_OF_PLACE_OF_BIRTH = "CHANGE_OF_PLACE_OF_BIRTH"
     APPOINTMENT_OF_MARRIAGE_OFFICERS = "APPOINTMENT_OF_MARRIAGE_OFFICERS"
+    COMPANY_WINDING_UP = "COMPANY_WINDING_UP"
+    COMPANY_DISSOLUTION = "COMPANY_DISSOLUTION"
+    COMPANY_STRIKE_OFF_INTENTION = "COMPANY_STRIKE_OFF_INTENTION"
+    EXTERNAL_COMPANY_CESSATION = "EXTERNAL_COMPANY_CESSATION"
     
     # General Categories
     LEGAL_NOTICE = "LEGAL_NOTICE"
@@ -25,6 +29,7 @@ class GazetteStatus(str, Enum):
     DRAFT = "DRAFT"
     PUBLISHED = "PUBLISHED"
     ARCHIVED = "ARCHIVED"
+    REVIEWED = "REVIEWED"
     CANCELLED = "CANCELLED"
 
 class GazettePriority(str, Enum):
@@ -46,6 +51,7 @@ class GazetteBase(BaseModel):
     expiry_date: Optional[datetime] = None
     source: Optional[str] = Field(None, max_length=200)
     reference_number: Optional[str] = Field(None, max_length=100)
+    address: Optional[str] = None
     gazette_number: Optional[str] = Field(None, max_length=50)
     page_number: Optional[int] = None
     jurisdiction: Optional[str] = Field(None, max_length=100)
@@ -100,7 +106,7 @@ class GazetteBase(BaseModel):
 
 # Create Gazette Schema
 class GazetteCreate(GazetteBase):
-    pass
+    status: GazetteStatus = GazetteStatus.PUBLISHED
 
 # Update Gazette Schema
 class GazetteUpdate(BaseModel):
@@ -116,6 +122,7 @@ class GazetteUpdate(BaseModel):
     expiry_date: Optional[datetime] = None
     source: Optional[str] = Field(None, max_length=200)
     reference_number: Optional[str] = Field(None, max_length=100)
+    address: Optional[str] = None
     gazette_number: Optional[str] = Field(None, max_length=50)
     page_number: Optional[int] = None
     jurisdiction: Optional[str] = Field(None, max_length=100)
@@ -127,6 +134,29 @@ class GazetteUpdate(BaseModel):
     keywords: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     gazette_metadata: Optional[Dict[str, Any]] = None
+    item_number: Optional[str] = Field(None, max_length=50)
+    old_name: Optional[str] = Field(None, max_length=500)
+    alias_names: Optional[List[str]] = None
+    new_name: Optional[str] = Field(None, max_length=500)
+    current_name: Optional[str] = Field(None, max_length=500)
+    name_value: Optional[str] = Field(None, max_length=500)
+    name_role: Optional[str] = Field(None, max_length=20)
+    name_set_id: Optional[str] = Field(None, max_length=200)
+    profession: Optional[str] = Field(None, max_length=200)
+    effective_date_of_change: Optional[datetime] = None
+    remarks: Optional[str] = None
+    old_date_of_birth: Optional[datetime] = None
+    new_date_of_birth: Optional[datetime] = None
+    place_of_birth: Optional[str] = Field(None, max_length=200)
+    old_place_of_birth: Optional[str] = Field(None, max_length=200)
+    new_place_of_birth: Optional[str] = Field(None, max_length=200)
+    officer_name: Optional[str] = Field(None, max_length=200)
+    officer_title: Optional[str] = Field(None, max_length=100)
+    appointment_authority: Optional[str] = Field(None, max_length=200)
+    jurisdiction_area: Optional[str] = Field(None, max_length=200)
+    gazette_date: Optional[datetime] = None
+    gazette_page: Optional[int] = None
+    source_item_number: Optional[str] = Field(None, max_length=50)
     document_url: Optional[str] = Field(None, max_length=500)
     document_filename: Optional[str] = Field(None, max_length=255)
     document_size: Optional[int] = None
